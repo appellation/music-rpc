@@ -91,19 +91,24 @@ pub struct NowPlayingInfo {
 	pub chapter_number: Option<usize>,
 }
 
-impl From<NowPlayingInfo> for Properties {
+impl From<NowPlayingInfo> for Option<Properties> {
 	fn from(value: NowPlayingInfo) -> Self {
-		let start = value.timestamp.unwrap().as_millisecond() as u128;
-		let end = (value.timestamp.unwrap()
-			+ SignedDuration::from_secs_f32(value.duration.unwrap()))
-		.as_millisecond() as u128;
-
-		Self {
-			artist: value.artist.unwrap(),
-			start,
-			end,
-			title: value.title,
+		if !value.playing {
+			return None;
 		}
+
+		let elapsed_duration = SignedDuration::from_secs_f32(value.elapsed_time?);
+		let start = value.timestamp? - elapsed_duration;
+
+		let playback_duration = SignedDuration::from_secs_f32(value.duration?);
+		let end = start + playback_duration;
+
+		Some(Properties {
+			artist: value.artist?,
+			start: start.as_millisecond() as u128,
+			end: end.as_millisecond() as u128,
+			title: value.title,
+		})
 	}
 }
 
