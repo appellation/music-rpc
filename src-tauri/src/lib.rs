@@ -1,28 +1,20 @@
-use std::{
-	env, thread,
-	time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::env;
 
 use error::{AppError, AppResult};
+use futures::TryStreamExt;
 use rpc::{Activity, ActivityTimestamps, Rpc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{async_runtime::spawn, AppHandle, Emitter, State};
-use tokio::sync::{Mutex, MutexGuard, OnceCell};
-use tracing::Level;
-use windows::{
-	Foundation::TypedEventHandler,
-	Media::Control::{
-		GlobalSystemMediaTransportControlsSession, GlobalSystemMediaTransportControlsSessionManager,
-	},
+use tauri::{AppHandle, Emitter, State};
+use tokio::{
+	spawn,
+	sync::{Mutex, MutexGuard, OnceCell},
 };
+use tracing::Level;
 
 mod error;
+mod media;
 mod rpc;
-
-fn universal_epoch() -> SystemTime {
-	UNIX_EPOCH - Duration::from_secs(11_644_473_600)
-}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct Properties {
@@ -52,88 +44,24 @@ impl RpcState {
 	}
 }
 
-#[tracing::instrument(skip_all, ret, level = Level::DEBUG)]
-fn emit_media_change(app: AppHandle) {
-	spawn(async move {
-		app.emit("media_change", get_media().await.unwrap())
-			.unwrap();
-	});
-}
-
 #[tauri::command]
+#[tracing::instrument(skip(app), ret, err, level = Level::INFO)]
 async fn subscribe_media(app: AppHandle) -> AppResult<()> {
-	thread::spawn(move || {
-		let session_manager =
-			GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?.get()?;
+	let mut subscription = media::subscribe(app.clone())?;
 
-		let current_session = session_manager.GetCurrentSession()?;
-		subscribe_session(app.clone(), current_session)?;
-
-		// let session_changed_handler = TypedEventHandler::new(
-		// 	move |sender: windows_core::Ref<GlobalSystemMediaTransportControlsSessionManager>, _| {
-		// 		if let Some(manager) = &*sender {
-		// 			let session = manager.GetCurrentSession().unwrap();
-		// 			// subscribe_session(app.clone(), session).unwrap();
-		// 		}
-
-		// 		println!("session changed");
-		// 		emit_media_change(app.clone());
-		// 		Ok(())
-		// 	},
-		// );
-		// session_manager.CurrentSessionChanged(&session_changed_handler)?;
-
-		Ok::<_, AppError>(())
+	spawn(async move {
+		while let Some(properties) = subscription.try_next().await.unwrap() {
+			app.emit("media_change", properties).unwrap();
+		}
 	});
 
-	Ok(())
-}
-
-fn subscribe_session(
-	app: AppHandle,
-	session: GlobalSystemMediaTransportControlsSession,
-) -> AppResult<()> {
-	let app2 = app.clone();
-	let timeline_properties_changed_handler = TypedEventHandler::new(move |_, _| {
-		emit_media_change(app2.clone());
-		Ok(())
-	});
-	let _timeline_token =
-		session.TimelinePropertiesChanged(&timeline_properties_changed_handler)?;
-
-	let media_properties_changed_handler = TypedEventHandler::new(move |_, _| {
-		emit_media_change(app.clone());
-		Ok(())
-	});
-	let _media_properties_token =
-		session.MediaPropertiesChanged(&media_properties_changed_handler)?;
-
-	thread::park();
 	Ok(())
 }
 
 #[tauri::command]
-#[tracing::instrument(ret, err, level = Level::INFO)]
-async fn get_media() -> AppResult<Properties> {
-	let session = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()?
-		.await?
-		.GetCurrentSession()?;
-
-	let properties = session.TryGetMediaPropertiesAsync()?.await?;
-	let timeline = session.GetTimelineProperties()?;
-
-	let last_updated = universal_epoch()
-		+ Duration::from_nanos(timeline.LastUpdatedTime()?.UniversalTime as u64 * 100);
-	let start =
-		last_updated + Duration::from(timeline.StartTime()?) - Duration::from(timeline.Position()?);
-	let end = start + Duration::from(timeline.EndTime()?);
-
-	Ok(Properties {
-		title: properties.Title()?.to_string_lossy(),
-		artist: properties.Artist()?.to_string_lossy(),
-		start: start.duration_since(UNIX_EPOCH)?.as_millis(),
-		end: end.duration_since(UNIX_EPOCH)?.as_millis(),
-	})
+#[tracing::instrument(skip(app), ret, err, level = Level::INFO)]
+async fn get_media(app: AppHandle) -> AppResult<Option<Properties>> {
+	media::get(app).await
 }
 
 #[tauri::command]
@@ -176,10 +104,10 @@ pub fn run() -> AppResult<()> {
 
 	let config = Config {
 		client_id: env::var("CLIENT_ID")
-			.expect("CLIENT_ID is defined")
+			.expect("CLIENT_ID is not defined")
 			.parse()
-			.expect("CLIENT_ID is a number"),
-		client_secret: env::var("CLIENT_SECRET").expect("CLIENT_SECRET is defined"),
+			.expect("CLIENT_ID is not a number"),
+		client_secret: env::var("CLIENT_SECRET").expect("CLIENT_SECRET is not defined"),
 	};
 
 	tauri::Builder::default()

@@ -1,4 +1,4 @@
-use std::{fmt::Debug, process, time::Duration};
+use std::{fmt::Debug, future::Future, process, time::Duration};
 
 use anyhow::anyhow;
 use codec::{Op, RpcCodec, RpcPacket};
@@ -6,7 +6,6 @@ use futures::{SinkExt, StreamExt, TryStream, TryStreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use tokio::{
-	net::windows::named_pipe::ClientOptions,
 	pin, spawn,
 	sync::{mpsc, watch},
 	time::sleep,
@@ -15,14 +14,37 @@ use tokio_stream::wrappers::WatchStream;
 use tokio_util::codec::Framed;
 use tracing::Level;
 use ulid::Ulid;
-use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
 
 use crate::error::{AppError, AppResult};
 
 mod codec;
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+mod win;
 
-fn get_pipe_name(id: u8) -> String {
-	format!(r#"\\?\pipe\discord-ipc-{}"#, id)
+async fn try_all_pipes<F, C, T, E>(get_client: F, try_again: impl Fn(&E) -> bool) -> AppResult<T>
+where
+	F: Fn(u8) -> C,
+	C: Future<Output = Result<T, E>>,
+	E: Into<AppError>,
+{
+	let mut id = 0;
+	loop {
+		match get_client(id).await {
+			Ok(client) => break Ok(client),
+			Err(e) if try_again(&e) => {
+				sleep(Duration::from_millis(500)).await;
+			}
+			Err(e) => {
+				if id == 10 {
+					return Err(e.into());
+				} else {
+					id += 1;
+				}
+			}
+		}
+	}
 }
 
 pub struct Rpc {
@@ -35,23 +57,7 @@ pub struct Rpc {
 impl Rpc {
 	#[tracing::instrument(skip(client), err, level = Level::INFO)]
 	pub async fn new(client: reqwest::Client, client_id: u64) -> AppResult<Self> {
-		let mut id = 0;
-		let pipe = loop {
-			match ClientOptions::new().open(get_pipe_name(id)) {
-				Ok(client) => break client,
-				Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
-					sleep(Duration::from_millis(500)).await;
-				}
-				Err(e) => {
-					if id == 10 {
-						return Err(e.into());
-					} else {
-						id += 1;
-					}
-				}
-			}
-		};
-
+		let pipe = Self::get_pipe().await?;
 		let mut framed = Framed::new(pipe, RpcCodec);
 		framed
 			.send(RpcPacket {
