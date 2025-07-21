@@ -38,6 +38,7 @@ impl MediaRemote {
 		}
 	}
 
+	#[tracing::instrument(skip(self), err)]
 	pub async fn get_now_playing_info(&self) -> anyhow::Result<Option<NowPlayingInfo>> {
 		let output = Command::new("/usr/bin/perl")
 			.args([
@@ -90,7 +91,7 @@ pub struct NowPlayingInfo {
 	pub elapsed_time: Option<f32>,
 	pub timestamp: Option<Timestamp>,
 	pub artwork_mime_type: Option<String>,
-	#[serde(deserialize_with = "deserialize_artwork_data")]
+	#[serde(deserialize_with = "deserialize_artwork_data", default)]
 	pub artwork_data: Option<Vec<u8>>,
 	pub chapter_number: Option<usize>,
 }
@@ -112,6 +113,11 @@ impl From<NowPlayingInfo> for Option<Properties> {
 			start,
 			end,
 			title: value.title,
+			artwork_mime: value.artwork_mime_type?,
+			artwork_hash: blake3::hash(value.artwork_data.as_ref()?)
+				.to_hex()
+				.to_string(),
+			artwork_bytes: value.artwork_data?,
 		})
 	}
 }
@@ -139,6 +145,13 @@ where
 				.map_err(|err| E::custom(err))
 		}
 
+		fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+		where
+			D: Deserializer<'de>,
+		{
+			deserializer.deserialize_str(self)
+		}
+
 		fn visit_none<E>(self) -> Result<Self::Value, E>
 		where
 			E: serde::de::Error,
@@ -147,7 +160,7 @@ where
 		}
 	}
 
-	deserializer.deserialize_str(Base64Visitor)
+	deserializer.deserialize_option(Base64Visitor)
 }
 
 #[derive(Debug, Serialize, Deserialize)]

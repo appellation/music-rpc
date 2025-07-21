@@ -371,6 +371,10 @@ pub struct Activity {
 	pub details: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub state: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub assets: Option<ActivityAssets>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub status_display_type: Option<u8>,
 }
 
 fn activity_timestamp_serializer<S>(
@@ -392,6 +396,22 @@ pub struct ActivityTimestamps {
 	pub start: Option<Timestamp>,
 	#[serde(serialize_with = "activity_timestamp_serializer")]
 	pub end: Option<Timestamp>,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct ActivityAssets {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub large_image: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub large_text: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub large_url: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub small_image: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub small_text: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub small_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

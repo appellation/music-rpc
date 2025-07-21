@@ -14,7 +14,8 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": ["../cloudflared/cloudflared"]
   },
   "productName": "music-rpc",
   "mainBinaryName": "music-rpc",
