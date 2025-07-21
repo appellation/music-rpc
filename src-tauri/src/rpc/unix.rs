@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -18,7 +19,7 @@ fn get_pipe(id: u8) -> String {
 }
 
 impl Rpc {
-	pub(crate) async fn get_pipe() -> AppResult<impl AsyncRead + AsyncWrite> {
+	pub(crate) async fn get_pipes() -> AppResult<HashMap<u8, impl AsyncRead + AsyncWrite>> {
 		Ok(try_all_pipes(|id| UnixStream::connect(get_pipe(id)), |_| false).await?)
 	}
 }

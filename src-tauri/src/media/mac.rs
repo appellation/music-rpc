@@ -1,4 +1,4 @@
-use std::{future::ready, sync::OnceLock};
+use std::sync::OnceLock;
 
 use futures::{TryStream, TryStreamExt};
 use media_remote::MediaRemote;
@@ -19,9 +19,7 @@ pub async fn get(app: AppHandle) -> AppResult<Option<Properties>> {
 
 pub fn subscribe(
 	app: AppHandle,
-) -> anyhow::Result<impl TryStream<Ok = Properties, Error = anyhow::Error>> {
+) -> anyhow::Result<impl TryStream<Ok = Option<Properties>, Error = anyhow::Error>> {
 	let mr = MEDIA_REMOTE.get_or_init(|| MediaRemote::new(app));
-	Ok(mr
-		.subscribe_now_playing_info()?
-		.try_filter_map(|info| ready(Ok(info.into()))))
+	Ok(mr.subscribe_now_playing_info()?.map_ok(|info| info.into()))
 }

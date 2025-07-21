@@ -7,8 +7,8 @@ async function getMedia() {
 }
 
 async function setActivity(media) {
-  document.getElementById("title").innerText = media.title;
-  document.getElementById("artist").innerText = media.artist;
+  document.getElementById("title").innerText = media?.title ?? "";
+  document.getElementById("artist").innerText = media?.artist ?? "";
   await invoke("set_activity", { properties: media });
 }
 

@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, path::PathBuf};
+use std::{ffi::OsStr, path::PathBuf, process::Stdio};
 
 use anyhow::ensure;
 use futures::{StreamExt, TryStream};
@@ -61,6 +61,8 @@ impl MediaRemote {
 				OsStr::new("stream"),
 				OsStr::new("--no-diff"),
 			])
+			.stdout(Stdio::piped())
+			.stderr(Stdio::null())
 			.spawn()?;
 
 		let lines = LinesStream::new(BufReader::new(cmd.stdout.unwrap()).lines());
@@ -105,8 +107,8 @@ impl From<NowPlayingInfo> for Option<Properties> {
 
 		Some(Properties {
 			artist: value.artist?,
-			start: start.as_millisecond() as u128,
-			end: end.as_millisecond() as u128,
+			start,
+			end,
 			title: value.title,
 		})
 	}

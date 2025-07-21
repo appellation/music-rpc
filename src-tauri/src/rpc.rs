@@ -1,16 +1,18 @@
-use std::{fmt::Debug, future::Future, process, time::Duration};
+use std::{collections::HashMap, fmt::Debug, future::Future, process, time::Duration};
 
 use anyhow::anyhow;
 use codec::{Op, RpcCodec, RpcPacket};
 use futures::{SinkExt, StreamExt, TryStream, TryStreamExt};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use jiff::{SignedDuration, Timestamp};
+use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
 use serde_json::json;
+use tauri::AppHandle;
+use tauri_plugin_store::StoreExt;
 use tokio::{
-	pin, spawn,
-	sync::{mpsc, watch},
+	spawn,
+	sync::{mpsc, watch, Mutex},
 	time::sleep,
 };
-use tokio_stream::wrappers::WatchStream;
 use tokio_util::codec::Framed;
 use tracing::Level;
 use ulid::Ulid;
@@ -23,33 +25,40 @@ mod unix;
 #[cfg(windows)]
 mod win;
 
-async fn try_all_pipes<F, C, T, E>(get_client: F, try_again: impl Fn(&E) -> bool) -> AppResult<T>
+async fn try_all_pipes<F, C, T, E>(
+	get_client: F,
+	try_again: impl Fn(&E) -> bool,
+) -> AppResult<HashMap<u8, T>>
 where
 	F: Fn(u8) -> C,
 	C: Future<Output = Result<T, E>>,
-	E: Into<AppError>,
+	E: Into<AppError> + std::error::Error + Send + Sync + 'static,
 {
-	let mut id = 0;
-	loop {
+	let mut clients = HashMap::new();
+	for id in 0..10 {
 		match get_client(id).await {
-			Ok(client) => break Ok(client),
+			Ok(client) => {
+				clients.insert(id, client);
+			}
 			Err(e) if try_again(&e) => {
 				sleep(Duration::from_millis(500)).await;
 			}
 			Err(e) => {
-				if id == 10 {
-					return Err(e.into());
-				} else {
-					id += 1;
-				}
+				tracing::debug!(
+					"failed to connect to client ID {}: {}",
+					id,
+					AppError::from(e)
+				);
 			}
 		}
 	}
+
+	Ok(clients)
 }
 
 pub struct Rpc {
-	tx: mpsc::Sender<RpcPacket>,
-	rx: WatchStream<Option<RpcPacket>>,
+	tx: HashMap<u8, mpsc::Sender<RpcPacket>>,
+	rx: HashMap<u8, Mutex<watch::Receiver<Option<RpcPacket>>>>,
 	rq: reqwest::Client,
 	client_id: u64,
 }
@@ -57,25 +66,35 @@ pub struct Rpc {
 impl Rpc {
 	#[tracing::instrument(skip(client), err, level = Level::INFO)]
 	pub async fn new(client: reqwest::Client, client_id: u64) -> AppResult<Self> {
-		let pipe = Self::get_pipe().await?;
-		let mut framed = Framed::new(pipe, RpcCodec);
-		framed
-			.send(RpcPacket {
-				op: Op::Handshake,
-				data: json!({ "v": 1, "client_id": client_id.to_string() }),
-			})
-			.await?;
+		let pipes = Self::get_pipes().await?;
 
-		let (tx, rx) = framed.split();
-		let (in_tx, in_rx) = watch::channel(None);
-		let (out_tx, out_rx) = mpsc::channel(32);
+		let mut senders = HashMap::new();
+		let mut receivers = HashMap::new();
 
-		spawn(Self::process_inbox(rx, out_tx.clone(), in_tx));
-		spawn(Self::process_outbox(tx, out_rx));
+		for (id, pipe) in pipes {
+			let mut framed = Framed::new(pipe, RpcCodec);
+			framed
+				.send(RpcPacket {
+					op: Op::Handshake,
+					data: json!({ "v": 1, "client_id": client_id.to_string() }),
+				})
+				.await?;
+			framed.next().await;
+
+			let (tx, rx) = framed.split();
+			let (in_tx, in_rx) = watch::channel(None);
+			let (out_tx, out_rx) = mpsc::channel(32);
+
+			spawn(Self::process_inbox(rx, out_tx.clone(), in_tx));
+			spawn(Self::process_outbox(tx, out_rx));
+
+			senders.insert(id, out_tx);
+			receivers.insert(id, Mutex::new(in_rx));
+		}
 
 		Ok(Self {
-			tx: out_tx,
-			rx: WatchStream::new(in_rx),
+			tx: senders,
+			rx: receivers,
 			rq: client,
 			client_id,
 		})
@@ -102,7 +121,7 @@ impl Rpc {
 				}
 				Op::Close => break,
 				_ => {
-					receiver.send_replace(Some(packet));
+					receiver.send(Some(packet))?;
 				}
 			}
 		}
@@ -122,19 +141,87 @@ impl Rpc {
 		Ok(())
 	}
 
-	pub async fn authenticate(&mut self, client_secret: &str) -> AppResult<()> {
-		let nonce = Ulid::new();
-		self.send(&Command {
-			nonce,
-			args: AuthorizeArgs {
-				client_id: self.client_id.to_string(),
-				scopes: &["rpc", "rpc.activities.write"],
+	pub async fn maybe_authenticate_all(
+		&mut self,
+		app: AppHandle,
+		client_secret: &str,
+	) -> AppResult<()> {
+		for id in self.tx.keys().copied() {
+			let token = app.store("auth")?.get(id.to_string());
+			let mut token = match token {
+				None => self.authenticate(id, client_secret).await?,
+				Some(value) => serde_json::from_value(value)?,
+			};
+
+			if token.expires_at < Timestamp::now() {
+				token = self.authenticate(id, client_secret).await?;
+			} else if token.expires_at < Timestamp::now() + SignedDuration::from_hours(24) {
+				token = self.refresh(id, token, client_secret).await?;
+			}
+
+			app.store("auth")?
+				.set(id.to_string(), serde_json::to_value(token)?);
+		}
+
+		Ok(())
+	}
+
+	#[must_use]
+	async fn refresh(
+		&self,
+		socket_id: u8,
+		token: OAuth2Token,
+		client_secret: &str,
+	) -> AppResult<OAuth2Token> {
+		let res = self
+			.rq
+			.post("https://discord.com/api/v10/oauth2/token")
+			.form(&OAuth2RefreshBody {
+				grant_type: "refresh_token",
+				refresh_token: token.refresh_token,
+			})
+			.basic_auth(self.client_id, Some(client_secret))
+			.send()
+			.await?
+			.error_for_status()?
+			.json::<OAuth2Response>()
+			.await?;
+		let token: OAuth2Token = res.into();
+
+		self.send(
+			socket_id,
+			&Command {
+				nonce: Ulid::new(),
+				args: AuthenticateArgs {
+					access_token: token.access_token.clone(),
+				},
+				cmd: "AUTHENTICATE",
 			},
-			cmd: "AUTHORIZE",
-		})
+		)
 		.await?;
 
-		let res = self.expect_response::<AuthorizeData>(Some(nonce)).await?;
+		Ok(token)
+	}
+
+	#[must_use]
+	pub async fn authenticate(&self, socket_id: u8, client_secret: &str) -> AppResult<OAuth2Token> {
+		let nonce = Ulid::new();
+		self.send(
+			socket_id,
+			&Command {
+				nonce,
+				args: AuthorizeArgs {
+					client_id: self.client_id.to_string(),
+					scopes: &["rpc", "rpc.activities.write"],
+				},
+				cmd: "AUTHORIZE",
+			},
+		)
+		.await?;
+
+		let res = self
+			.expect_response::<AuthorizeData>(socket_id, Some(nonce))
+			.await?;
 		let res = self
 			.rq
 			.post("https://discord.com/api/v10/oauth2/token")
@@ -150,34 +237,49 @@ impl Rpc {
 			.error_for_status()?
 			.json::<OAuth2Response>()
 			.await?;
+		let token: OAuth2Token = res.into();
 
-		self.send(&Command {
-			nonce: Ulid::new(),
-			args: AuthenticateArgs {
-				access_token: res.access_token,
+		self.send(
+			socket_id,
+			&Command {
+				nonce: Ulid::new(),
+				args: AuthenticateArgs {
+					access_token: token.access_token.clone(),
+				},
+				cmd: "AUTHENTICATE",
 			},
-			cmd: "AUTHENTICATE",
-		})
+		)
 		.await?;
 
-		Ok(())
+		Ok(token)
 	}
 
-	pub async fn set_activity(&mut self, activity: Activity) -> AppResult<()> {
-		self.send(&Command {
+	pub async fn set_activity(&self, activity: Activity) -> AppResult<()> {
+		self.send_all(&Command {
 			nonce: Ulid::new(),
 			args: SetActivityArgs {
 				pid: process::id(),
-				activity,
+				activity: Some(activity),
 			},
 			cmd: "SET_ACTIVITY",
 		})
 		.await
 	}
 
-	#[tracing::instrument(skip(self), err, level = Level::DEBUG)]
-	async fn send<T: Serialize + Debug>(&mut self, data: T) -> AppResult<()> {
-		self.tx
+	pub async fn clear_activity(&self) -> AppResult<()> {
+		self.send_all(&Command {
+			nonce: Ulid::new(),
+			args: SetActivityArgs {
+				pid: process::id(),
+				activity: None,
+			},
+			cmd: "SET_ACTIVITY",
+		})
+		.await
+	}
+
+	async fn send<T: Serialize + Debug>(&self, socket_id: u8, data: T) -> AppResult<()> {
+		self.tx[&socket_id]
 			.send(RpcPacket {
 				op: Op::Frame,
 				data: serde_json::to_value(data)?,
@@ -187,34 +289,45 @@ impl Rpc {
 		Ok(())
 	}
 
+	#[tracing::instrument(skip(self), err, level = Level::DEBUG)]
+	async fn send_all<T: Serialize + Debug>(&self, data: T) -> AppResult<()> {
+		for tx in self.tx.values() {
+			tx.send(RpcPacket {
+				op: Op::Frame,
+				data: serde_json::to_value(&data)?,
+			})
+			.await?;
+		}
+
+		Ok(())
+	}
+
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
 	pub async fn expect_response<T: DeserializeOwned + Debug>(
-		&mut self,
+		&self,
+		socket_id: u8,
 		nonce: Option<Ulid>,
 	) -> AppResult<Response<T>> {
-		let stream = self.rx.by_ref().filter_map(|packet| async move {
-			match packet {
-				None => None,
-				Some(packet) => {
-					if packet.op != Op::Frame {
-						return None;
-					}
+		let mut watcher = self
+			.rx
+			.get(&socket_id)
+			.ok_or(anyhow!("socket not found"))?
+			.lock()
+			.await;
+		watcher.changed().await?;
+		let value = watcher.borrow();
 
-					let response = serde_json::from_value::<Response<T>>(packet.data).ok();
-					if response.as_ref().and_then(|res| res.nonce) != nonce {
-						None
-					} else {
-						response
-					}
-				}
+		let res = serde_json::from_value::<Response<T>>(value.as_ref().unwrap().data.clone())?;
+
+		if let Some(expected) = nonce {
+			if Some(expected) != res.nonce {
+				return Err(
+					anyhow!("expected nonce {}, received {:?}", expected, res.nonce).into(),
+				);
 			}
-		});
+		}
 
-		pin!(stream);
-		stream
-			.next()
-			.await
-			.ok_or_else(|| anyhow!("expected response, got none").into())
+		Ok(res)
 	}
 }
 
@@ -239,7 +352,8 @@ struct AuthenticateArgs {
 #[derive(Debug, Serialize)]
 pub struct SetActivityArgs {
 	pub pid: u32,
-	pub activity: Activity,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub activity: Option<Activity>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -259,17 +373,32 @@ pub struct Activity {
 	pub state: Option<String>,
 }
 
+fn activity_timestamp_serializer<S>(
+	timestamp: &Option<Timestamp>,
+	serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+	S: Serializer,
+{
+	match timestamp {
+		Some(timestamp) => serializer.serialize_i64(timestamp.as_millisecond()),
+		None => serializer.serialize_none(),
+	}
+}
+
 #[derive(Debug, Serialize)]
 pub struct ActivityTimestamps {
-	pub start: Option<u128>,
-	pub end: Option<u128>,
+	#[serde(serialize_with = "activity_timestamp_serializer")]
+	pub start: Option<Timestamp>,
+	#[serde(serialize_with = "activity_timestamp_serializer")]
+	pub end: Option<Timestamp>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Response<T> {
 	pub nonce: Option<Ulid>,
 	pub data: T,
-	pub cmd: String,
+	// pub cmd: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -285,7 +414,32 @@ struct OAuth2Body {
 	pub redirect_uri: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct OAuth2RefreshBody {
+	pub grant_type: &'static str,
+	pub refresh_token: String,
+}
+
 #[derive(Debug, Deserialize)]
-struct OAuth2Response {
+pub struct OAuth2Response {
 	pub access_token: String,
+	pub expires_in: u64,
+	pub refresh_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OAuth2Token {
+	pub access_token: String,
+	pub expires_at: Timestamp,
+	pub refresh_token: String,
+}
+
+impl From<OAuth2Response> for OAuth2Token {
+	fn from(value: OAuth2Response) -> Self {
+		Self {
+			access_token: value.access_token,
+			expires_at: Timestamp::now() + Duration::from_secs(value.expires_in),
+			refresh_token: value.refresh_token,
+		}
+	}
 }
