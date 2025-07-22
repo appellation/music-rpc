@@ -5,8 +5,8 @@ use tauri::Manager;
 use tracing::Level;
 
 use crate::{
-	media::{serve::Server, Properties},
-	state::Config,
+	media::{serve::Server, Media},
+	state::{Config, RpcState},
 };
 
 use commands::{
@@ -38,6 +38,7 @@ pub fn run() -> AppResult<()> {
 	tauri::Builder::default()
 		.setup(|app| {
 			app.manage(Server::serve(app.handle().to_owned()).unwrap());
+			app.manage(RpcState::default());
 			Ok(())
 		})
 		.manage(config)

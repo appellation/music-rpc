@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, path::PathBuf, process::Stdio};
 
 use anyhow::ensure;
-use base64::{engine::general_purpose, Engine};
+use base64::{prelude::BASE64_STANDARD, Engine};
 use futures::{StreamExt, TryStream};
 use jiff::{SignedDuration, Timestamp};
 use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
@@ -13,7 +13,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::LinesStream;
 
-use crate::Properties;
+use crate::Media;
 
 pub struct MediaRemote {
 	framework_path: PathBuf,
@@ -96,7 +96,7 @@ pub struct NowPlayingInfo {
 	pub chapter_number: Option<usize>,
 }
 
-impl From<NowPlayingInfo> for Option<Properties> {
+impl From<NowPlayingInfo> for Option<Media> {
 	fn from(value: NowPlayingInfo) -> Self {
 		if !value.playing {
 			return None;
@@ -108,7 +108,7 @@ impl From<NowPlayingInfo> for Option<Properties> {
 		let playback_duration = SignedDuration::from_secs_f32(value.duration?);
 		let end = start + playback_duration;
 
-		Some(Properties {
+		Some(Media {
 			artist: value.artist?,
 			start,
 			end,
@@ -126,7 +126,7 @@ fn deserialize_artwork_data<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, 
 where
 	D: Deserializer<'de>,
 {
-	struct Base64Visitor;
+	pub struct Base64Visitor;
 
 	impl<'de> Visitor<'de> for Base64Visitor {
 		type Value = Option<Vec<u8>>;
@@ -139,7 +139,7 @@ where
 		where
 			E: serde::de::Error,
 		{
-			general_purpose::STANDARD
+			BASE64_STANDARD
 				.decode(v)
 				.map(Some)
 				.map_err(|err| E::custom(err))

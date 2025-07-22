@@ -1,18 +1,27 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="stylesheet" href="src/styles.css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <head>
+        <meta charset="UTF-8" />
+        <link rel="stylesheet" href="src/styles.css" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Tauri App</title>
-    <script type="module" src="src/main.js" defer></script>
-  </head>
+        <title>Tauri App</title>
+        <script type="module" src="src/main.js" defer></script>
+    </head>
 
-  <body>
-    <div class="container">
-      <h1 id="title"></h1>
-      <h2 id="artist"></h2>
-    </div>
-  </body>
+    <body>
+        <div class="container">
+            <img
+                id="artwork"
+                style="
+                    width: fit-content;
+                    height: auto;
+                    max-width: none;
+                    object-fit: none;
+                "
+            />
+            <h1 id="title"></h1>
+            <h2 id="artist"></h2>
+        </div>
+    </body>
 </html>

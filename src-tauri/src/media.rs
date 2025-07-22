@@ -16,21 +16,20 @@ pub use mac::*;
 pub use win::*;
 
 #[derive(Deserialize, Serialize, Clone)]
-pub struct Properties {
+pub struct Media {
 	pub title: String,
 	pub artist: String,
 	pub start: Timestamp,
 	pub end: Timestamp,
-	#[serde(skip)]
 	pub artwork_mime: String,
-	#[serde(skip)]
+	#[serde(with = "artwork_bytes")]
 	pub artwork_bytes: Vec<u8>,
 	pub artwork_hash: String,
 }
 
-impl Debug for Properties {
+impl Debug for Media {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_struct("Properties")
+		f.debug_struct("Media")
 			.field("title", &self.title)
 			.field("artist", &self.artist)
 			.field("start", &self.start)
@@ -39,5 +38,42 @@ impl Debug for Properties {
 			.field("artwork_bytes", &"<bytes>")
 			.field("artwork_hash", &self.artwork_hash)
 			.finish()
+	}
+}
+
+mod artwork_bytes {
+	use base64::{prelude::BASE64_STANDARD, Engine};
+	use serde::{de::Visitor, Deserializer, Serializer};
+
+	pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		let encoded = BASE64_STANDARD.encode(bytes);
+		serializer.serialize_str(&encoded)
+	}
+
+	pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		struct Base64Visitor;
+
+		impl<'de> Visitor<'de> for Base64Visitor {
+			type Value = Vec<u8>;
+
+			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+				formatter.write_str("base64 string")
+			}
+
+			fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+			where
+				E: serde::de::Error,
+			{
+				BASE64_STANDARD.decode(v).map_err(|e| E::custom(e))
+			}
+		}
+
+		deserializer.deserialize_str(Base64Visitor)
 	}
 }

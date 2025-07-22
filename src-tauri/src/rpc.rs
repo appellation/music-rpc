@@ -64,8 +64,9 @@ pub struct Rpc {
 }
 
 impl Rpc {
-	#[tracing::instrument(skip(client), err, level = Level::INFO)]
-	pub async fn new(client: reqwest::Client, client_id: u64) -> AppResult<Self> {
+	#[tracing::instrument(err, level = Level::INFO)]
+	pub async fn new(client_id: u64) -> AppResult<Self> {
+		let client = reqwest::Client::new();
 		let pipes = Self::get_pipes().await?;
 
 		let mut senders = HashMap::new();
@@ -98,6 +99,16 @@ impl Rpc {
 			rq: client,
 			client_id,
 		})
+	}
+
+	pub async fn new_with_authenticate(
+		app: AppHandle,
+		client_id: u64,
+		client_secret: &str,
+	) -> AppResult<Self> {
+		let client = Self::new(client_id).await?;
+		client.maybe_authenticate_all(app, client_secret).await?;
+		Ok(client)
 	}
 
 	#[tracing::instrument(skip_all, err)]
@@ -142,7 +153,7 @@ impl Rpc {
 	}
 
 	pub async fn maybe_authenticate_all(
-		&mut self,
+		&self,
 		app: AppHandle,
 		client_secret: &str,
 	) -> AppResult<()> {
@@ -254,6 +265,7 @@ impl Rpc {
 		Ok(token)
 	}
 
+	#[tracing::instrument(skip(self), err)]
 	pub async fn set_activity(&self, activity: Activity) -> AppResult<()> {
 		self.send_all(&Command {
 			nonce: Ulid::new(),
@@ -266,6 +278,7 @@ impl Rpc {
 		.await
 	}
 
+	#[tracing::instrument(skip(self), err)]
 	pub async fn clear_activity(&self) -> AppResult<()> {
 		self.send_all(&Command {
 			nonce: Ulid::new(),

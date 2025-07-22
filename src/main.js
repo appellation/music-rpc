@@ -7,9 +7,16 @@ async function getMedia() {
 }
 
 async function setActivity(media) {
+  if (media) {
+    document.getElementById("artwork").src =
+      `data:${media.artwork_mime};base64,${media.artwork_bytes}`;
+  } else {
+    document.getElementById("artwork").src = null;
+  }
+
   document.getElementById("title").innerText = media?.title ?? "";
   document.getElementById("artist").innerText = media?.artist ?? "";
-  await invoke("set_activity", { properties: media });
+  await invoke("set_activity", { media });
 }
 
 getMedia().catch(console.error);

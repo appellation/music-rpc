@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
 	extract::{Path, State},
@@ -6,17 +6,22 @@ use axum::{
 	routing::get,
 	serve, Router,
 };
-use blake3::Hash;
+use blake3::{hash, Hash};
 use regex::bytes::Regex;
 use reqwest::StatusCode;
 use tauri::{async_runtime::spawn, AppHandle};
 use tauri_plugin_shell::{process::CommandEvent, ShellExt};
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{
+	net::TcpListener,
+	sync::{Mutex, Notify, OnceCell},
+	time::sleep,
+};
 
 #[derive(Clone)]
 pub struct Server {
 	current_artwork: Arc<Mutex<Option<Artwork>>>,
-	pub public_url: Arc<Mutex<Option<String>>>,
+	public_url: Arc<OnceCell<String>>,
+	url_ready: Arc<Notify>,
 }
 
 impl Server {
@@ -24,6 +29,7 @@ impl Server {
 		let server = Self {
 			current_artwork: Arc::default(),
 			public_url: Arc::default(),
+			url_ready: Arc::default(),
 		};
 
 		let router = Router::new()
@@ -43,7 +49,7 @@ impl Server {
 	#[tracing::instrument(skip(self, bytes))]
 	pub async fn set_artwork(&self, mime: String, bytes: Vec<u8>) {
 		let mut artwork = self.current_artwork.lock().await;
-		let hash = blake3::hash(&bytes);
+		let hash = hash(&bytes);
 		*artwork = Some(Artwork { bytes, mime, hash });
 	}
 
@@ -59,7 +65,7 @@ impl Server {
 			return Err(StatusCode::NOT_FOUND);
 		};
 
-		let hash = Hash::from_hex(hash.as_bytes()).map_err(|_| StatusCode::NOT_FOUND)?;
+		let hash = hash.parse::<Hash>().map_err(|_| StatusCode::NOT_FOUND)?;
 		if hash == artwork.hash {
 			tracing::info!(%hash, "serving image");
 
@@ -91,13 +97,27 @@ impl Server {
 					let url = String::from_utf8(capture.as_bytes().to_vec())?;
 					tracing::info!("listening to port {} with url {}", port, url);
 
-					let mut public_url = self.public_url.lock().await;
-					*public_url = Some(url);
+					// ignore errors if the url is already set
+					let _ = self.public_url.set(url);
+					self.url_ready.notify_waiters();
 				}
 			}
 		}
 
 		Ok(())
+	}
+
+	pub async fn public_url(&self) -> &String {
+		match self.public_url.get() {
+			Some(url) => url,
+			None => {
+				self.url_ready.notified().await;
+				// the url being ready doesn't mean it will actually receive requests
+				// wait an arbitrary amount of time and hope it's ready by then
+				sleep(Duration::from_secs(5)).await;
+				self.public_url.get().unwrap()
+			}
+		}
 	}
 }
 
