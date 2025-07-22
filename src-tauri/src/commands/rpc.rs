@@ -23,8 +23,8 @@ pub async fn set_activity(
 		}
 		Some(properties) => {
 			rpc.set_activity(Activity {
-				details: Some(properties.artist),
-				state: Some(properties.title),
+				details: Some(properties.title),
+				state: Some(properties.artist),
 				r#type: 2,
 				timestamps: Some(ActivityTimestamps {
 					start: Some(properties.start),
@@ -39,7 +39,7 @@ pub async fn set_activity(
 						large_image: Some(format!("{}/{}", public_url, properties.artwork_hash)),
 						..Default::default()
 					}),
-				status_display_type: Some(2),
+				status_display_type: Some(1),
 				..Default::default()
 			})
 			.await?;
