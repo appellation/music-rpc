@@ -26,5 +26,5 @@ pub async fn rpc_client(
 
 pub struct Config {
 	pub client_id: u64,
-	pub client_secret: String,
+	pub client_secret: &'static str,
 }

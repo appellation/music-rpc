@@ -8,6 +8,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
+dotenv-build = "0.1.1"
 tauri-build = { version = "2", features = [] }
 
 [lib]
@@ -22,7 +23,6 @@ axum = "0.8.4"
 base64 = "0.22.1"
 blake3 = "1.8.2"
 byteorder = "1.5.0"
-dotenvy = "0.15.7"
 futures = "0.3.30"
 jiff = { version = "0.2.15", features = ["serde"] }
 regex = "1.11.1"

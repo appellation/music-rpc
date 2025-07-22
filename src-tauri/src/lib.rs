@@ -22,8 +22,6 @@ mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> AppResult<()> {
-	let _ = dotenvy::dotenv();
-
 	tracing_subscriber::fmt()
 		.with_max_level(Level::DEBUG)
 		.with_file(true)
@@ -31,11 +29,10 @@ pub fn run() -> AppResult<()> {
 		.init();
 
 	let config = Config {
-		client_id: env::var("CLIENT_ID")
-			.expect("CLIENT_ID is not defined")
+		client_id: env!("CLIENT_ID")
 			.parse()
 			.expect("CLIENT_ID is not a number"),
-		client_secret: env::var("CLIENT_SECRET").expect("CLIENT_SECRET is not defined"),
+		client_secret: env!("CLIENT_SECRET"),
 	};
 
 	tauri::Builder::default()
