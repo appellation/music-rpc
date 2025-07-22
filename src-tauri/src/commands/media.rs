@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[tauri::command]
-#[tracing::instrument(skip_all, ret, err, level = Level::INFO)]
+#[tracing::instrument(skip_all, err, level = Level::INFO)]
 pub async fn subscribe_media(app: AppHandle, server: State<'_, Server>) -> AppResult<()> {
 	let mut subscription = media::subscribe(app.clone())?;
 
@@ -32,7 +32,17 @@ pub async fn subscribe_media(app: AppHandle, server: State<'_, Server>) -> AppRe
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(app), ret, err, level = Level::INFO)]
-pub async fn get_media(app: AppHandle) -> AppResult<Option<Properties>> {
-	media::get(app).await
+#[tracing::instrument(skip_all, ret, err, level = Level::INFO)]
+pub async fn get_media(app: AppHandle, server: State<'_, Server>) -> AppResult<Option<Properties>> {
+	let properties = media::get(app).await?;
+	if let Some(properties) = properties.as_ref() {
+		server
+			.set_artwork(
+				properties.artwork_mime.clone(),
+				properties.artwork_bytes.clone(),
+			)
+			.await;
+	}
+
+	Ok(properties)
 }
