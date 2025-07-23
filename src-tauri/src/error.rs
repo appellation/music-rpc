@@ -3,7 +3,7 @@ use std::fmt::Display;
 use serde::Serialize;
 
 #[derive(Debug)]
-pub struct AppError(anyhow::Error);
+pub struct AppError(pub anyhow::Error);
 pub type AppResult<T, E = AppError> = std::result::Result<T, E>;
 
 impl<E> From<E> for AppError

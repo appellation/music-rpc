@@ -12,9 +12,7 @@ impl RpcState {
 		let app_inner = app.clone();
 		self.0
 			.get_or_init(|| async move {
-				Rpc::new_with_authenticate(app_inner, config.client_id, config.client_secret)
-					.await
-					.unwrap()
+				Rpc::new(app_inner, config.client_id, config.client_secret).unwrap()
 			})
 			.await
 	}

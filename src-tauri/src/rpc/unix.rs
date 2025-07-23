@@ -1,12 +1,9 @@
-use std::collections::HashMap;
-use std::env;
+use std::{env, io};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 
-use crate::error::AppResult;
-
-use super::{try_all_pipes, Rpc};
+use super::Rpc;
 
 fn get_pipe(id: u8) -> String {
 	let tmp = env::var("XDG_RUNTIME_DIR")
@@ -19,7 +16,7 @@ fn get_pipe(id: u8) -> String {
 }
 
 impl Rpc {
-	pub(crate) async fn get_pipes() -> AppResult<HashMap<u8, impl AsyncRead + AsyncWrite>> {
-		Ok(try_all_pipes(|id| UnixStream::connect(get_pipe(id)), |_| false).await?)
+	pub(crate) async fn get_pipe(id: u8) -> io::Result<impl AsyncRead + AsyncWrite> {
+		UnixStream::connect(get_pipe(id)).await
 	}
 }
