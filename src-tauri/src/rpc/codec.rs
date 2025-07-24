@@ -1,10 +1,6 @@
-use std::{
-	fmt::Display,
-	io::{self, Read, Write},
-};
+use std::fmt::Display;
 
 use anyhow::anyhow;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::{
@@ -51,7 +47,11 @@ pub struct RpcPacket {
 	pub data: Value,
 }
 
-pub struct RpcCodec;
+#[derive(Default)]
+pub struct RpcCodec {
+	op: Option<i32>,
+	len: Option<usize>,
+}
 
 impl Decoder for RpcCodec {
 	type Item = RpcPacket;
@@ -66,20 +66,21 @@ impl Decoder for RpcCodec {
 			return Ok(None);
 		}
 
-		let mut reader = src.reader();
-		let op = reader.read_i32::<LittleEndian>().unwrap();
-		let len = reader.read_i32::<LittleEndian>().unwrap();
+		let op = *self.op.get_or_insert_with(|| src.get_i32_le());
+		let len = *self.len.get_or_insert_with(|| src.get_i32_le() as usize);
 
-		let mut buf = vec![0; len as usize];
-		match reader.read_exact(&mut buf) {
-			Ok(()) => {}
-			Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-			Err(err) => return Err(err.into()),
+		if src.remaining() < len {
+			return Ok(None);
 		}
+
+		let buf = src.take(len).into_inner();
+
+		self.op = None;
+		self.len = None;
 
 		Ok(Some(RpcPacket {
 			op: op.try_into()?,
-			data: serde_json::from_slice(&buf)?,
+			data: serde_json::from_slice(buf)?,
 		}))
 	}
 }
@@ -94,11 +95,10 @@ impl Encoder<RpcPacket> for RpcCodec {
 		dst: &mut tokio_util::bytes::BytesMut,
 	) -> Result<(), Self::Error> {
 		let buf = serde_json::to_vec(&item.data)?;
-		let mut writer = dst.writer();
 
-		writer.write_i32::<LittleEndian>(item.op as i32)?;
-		writer.write_i32::<LittleEndian>(buf.len() as i32)?;
-		writer.write_all(&buf)?;
+		dst.put_i32_le(item.op as i32);
+		dst.put_i32_le(buf.len() as i32);
+		dst.put(&*buf);
 
 		Ok(())
 	}

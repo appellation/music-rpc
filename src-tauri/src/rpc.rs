@@ -167,7 +167,7 @@ impl Connection {
 		ready.send(Status::Opening)?;
 
 		let pipe = Rpc::get_pipe(self.id).await?;
-		let mut framed = Framed::new(pipe, RpcCodec);
+		let mut framed = Framed::new(pipe, RpcCodec::default());
 
 		framed
 			.send(RpcPacket {
@@ -313,6 +313,7 @@ impl Connection {
 
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
 	async fn send(&self, data: Command) -> AppResult<()> {
+		// TODO: somehow this channel can close
 		self.tx.send(data).await?;
 		Ok(())
 	}
