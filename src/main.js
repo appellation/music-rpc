@@ -9,10 +9,11 @@ async function getMedia() {
 
 async function setActivity(media) {
   if (media) {
+    document.getElementById("artwork").style = "display: block";
     document.getElementById("artwork").src =
       `data:${media.artwork_mime};base64,${media.artwork_bytes}`;
   } else {
-    document.getElementById("artwork").src = null;
+    document.getElementById("artwork").style = "display: none";
   }
 
   document.getElementById("title").innerText = media?.title ?? "";
