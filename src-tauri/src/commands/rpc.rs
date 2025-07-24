@@ -35,7 +35,7 @@ pub async fn set_activity(
 					}),
 					assets: Some(ActivityAssets {
 						large_image: Some(format!(
-							"{}/{}",
+							"https://{}/{}",
 							server.public_url().await,
 							media.artwork_hash
 						)),

@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use axum::{
 	extract::{Path, State},
@@ -7,43 +7,44 @@ use axum::{
 	serve, Router,
 };
 use blake3::{hash, Hash};
-use regex::bytes::Regex;
+use ngrok::{config::ForwarderBuilder, forwarder::Forwarder, tunnel::HttpTunnel, Session};
 use reqwest::StatusCode;
-use tauri::{async_runtime::spawn, AppHandle};
-use tauri_plugin_shell::{process::CommandEvent, ShellExt};
+use tauri::async_runtime::spawn;
 use tokio::{
 	net::TcpListener,
-	sync::{Mutex, Notify, OnceCell},
-	time::sleep,
+	sync::{watch, Mutex},
 };
+
+use crate::error::AppError;
 
 #[derive(Clone)]
 pub struct Server {
 	current_artwork: Arc<Mutex<Option<Artwork>>>,
-	public_url: Arc<OnceCell<String>>,
-	url_ready: Arc<Notify>,
+	url_ready: Arc<Mutex<watch::Receiver<bool>>>,
 }
 
 impl Server {
-	pub fn serve(app: AppHandle) -> anyhow::Result<Self> {
+	pub fn serve() -> Self {
+		let (ready_tx, ready_rx) = watch::channel(false);
 		let server = Self {
 			current_artwork: Arc::default(),
-			public_url: Arc::default(),
-			url_ready: Arc::default(),
+			url_ready: Arc::new(Mutex::new(ready_rx)),
 		};
 
 		let router = Router::new()
 			.route("/{hash}", get(Self::handle_request))
 			.with_state(server.clone());
 
-		let server2 = server.clone();
 		spawn(async move {
-			let listener = TcpListener::bind(("localhost", 0)).await.unwrap();
-			spawn(server2.open_tunnel(app, listener.local_addr().unwrap().port()));
-			serve(listener, router).await.unwrap();
+			let listener = TcpListener::bind(("localhost", 0)).await?;
+			let _forwarder = Self::open_tunnel(listener.local_addr()?.port()).await?;
+			ready_tx.send(true)?;
+			serve(listener, router).await?;
+
+			Ok::<_, AppError>(())
 		});
 
-		Ok(server)
+		server
 	}
 
 	#[tracing::instrument(skip(self, bytes))]
@@ -79,45 +80,28 @@ impl Server {
 		}
 	}
 
-	#[tracing::instrument(skip(self, app))]
-	async fn open_tunnel(self, app: AppHandle, port: u16) -> anyhow::Result<()> {
-		let url_re = Regex::new("https://[a-zA-Z0-9-.]+\\.trycloudflare\\.com").unwrap();
-		let (mut rx, _child) = app
-			.shell()
-			.sidecar("cloudflared")?
-			.args(["tunnel", "--url", &format!("http://localhost:{port}")])
-			.spawn()?;
-		tracing::debug!("spawned cloudflared tunnel");
+	#[tracing::instrument]
+	async fn open_tunnel(port: u16) -> anyhow::Result<Forwarder<HttpTunnel>> {
+		let session = Session::builder()
+			.authtoken(env!("NGROK_AUTH_TOKEN"))
+			.connect()
+			.await?;
 
-		while let Some(event) = rx.recv().await {
-			if let CommandEvent::Stderr(bytes) = event {
-				tracing::trace!(data = ?str::from_utf8(&bytes));
-
-				if let Some(capture) = url_re.find(&bytes) {
-					let url = String::from_utf8(capture.as_bytes().to_vec())?;
-					tracing::info!("listening to port {} with url {}", port, url);
-
-					// ignore errors if the url is already set
-					let _ = self.public_url.set(url);
-					self.url_ready.notify_waiters();
-				}
-			}
-		}
-
-		Ok(())
+		Ok(session
+			.http_endpoint()
+			.domain(env!("NGROK_DOMAIN"))
+			.pooling_enabled(true)
+			.listen_and_forward(format!("http://localhost:{port}").parse()?)
+			.await?)
 	}
 
-	pub async fn public_url(&self) -> &String {
-		match self.public_url.get() {
-			Some(url) => url,
-			None => {
-				self.url_ready.notified().await;
-				// the url being ready doesn't mean it will actually receive requests
-				// wait an arbitrary amount of time and hope it's ready by then
-				sleep(Duration::from_secs(5)).await;
-				self.public_url.get().unwrap()
-			}
+	pub async fn public_url(&self) -> &'static str {
+		let mut ready = self.url_ready.lock().await;
+		if !*ready.borrow() {
+			ready.changed().await.unwrap();
 		}
+
+		env!("NGROK_DOMAIN")
 	}
 }
 

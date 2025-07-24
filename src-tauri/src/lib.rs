@@ -1,7 +1,6 @@
 use std::env;
 
 use error::AppResult;
-use tauri::Manager;
 use tracing::Level;
 
 use crate::{
@@ -36,14 +35,10 @@ pub fn run() -> AppResult<()> {
 	};
 
 	tauri::Builder::default()
-		.setup(|app| {
-			app.manage(Server::serve(app.handle().to_owned()).unwrap());
-			app.manage(RpcState::default());
-			Ok(())
-		})
+		.manage(Server::serve())
+		.manage(RpcState::default())
 		.manage(config)
 		.plugin(tauri_plugin_store::Builder::new().build())
-		.plugin(tauri_plugin_shell::init())
 		.invoke_handler(tauri::generate_handler![
 			get_media,
 			subscribe_media,
