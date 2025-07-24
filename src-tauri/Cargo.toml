@@ -44,6 +44,9 @@ windows-core = "0.60"
 windows-future = "0.1"
 windows-sys = "0.59.0"
 
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
+
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!

@@ -9,7 +9,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0"
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-autostart": "~2.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.4.1",

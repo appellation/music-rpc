@@ -1,6 +1,7 @@
 use std::env;
 
 use error::AppResult;
+use tauri_plugin_autostart::MacosLauncher;
 use tracing::Level;
 
 use crate::{
@@ -35,6 +36,10 @@ pub fn run() -> AppResult<()> {
 	};
 
 	tauri::Builder::default()
+		.plugin(tauri_plugin_autostart::init(
+			MacosLauncher::LaunchAgent,
+			None,
+		))
 		.manage(Server::serve())
 		.manage(RpcState::default())
 		.manage(config)
