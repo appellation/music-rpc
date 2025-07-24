@@ -1,4 +1,5 @@
 use std::{
+	collections::HashMap,
 	fmt::Debug,
 	io::{self, ErrorKind},
 	process,
@@ -10,13 +11,13 @@ use anyhow::anyhow;
 use codec::{Op, RpcCodec, RpcPacket};
 use futures::{stream, SinkExt, Stream, StreamExt};
 use jiff::{SignedDuration, Timestamp};
-use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
-use serde_json::json;
+use serde::{Deserialize, Serialize, Serializer};
+use serde_json::{from_value, json, to_value, Value};
 use tauri::{async_runtime::spawn, AppHandle};
 use tauri_plugin_store::StoreExt;
 use tokio::{
 	select,
-	sync::{mpsc, watch, Mutex},
+	sync::{mpsc, oneshot, watch, Mutex},
 };
 use tokio_retry::{strategy::ExponentialBackoff, RetryIf};
 use tokio_util::codec::Framed;
@@ -47,12 +48,9 @@ impl Rpc {
 
 	#[tracing::instrument(skip(self), err)]
 	pub async fn set_activity(&self, activity: Activity) -> AppResult<()> {
-		self.send_all(&Command {
+		self.send_all(Command {
 			nonce: Ulid::new(),
-			args: SetActivityArgs {
-				pid: process::id(),
-				activity: Some(activity),
-			},
+			args: json!({ "pid": process::id(), "activity": activity }),
 			cmd: "SET_ACTIVITY",
 		})
 		.await
@@ -60,22 +58,19 @@ impl Rpc {
 
 	#[tracing::instrument(skip(self), err)]
 	pub async fn clear_activity(&self) -> AppResult<()> {
-		self.send_all(&Command {
+		self.send_all(Command {
 			nonce: Ulid::new(),
-			args: SetActivityArgs {
-				pid: process::id(),
-				activity: None,
-			},
+			args: json!({ "pid": process::id() }),
 			cmd: "SET_ACTIVITY",
 		})
 		.await
 	}
 
-	#[tracing::instrument(skip(self), err, level = Level::DEBUG)]
-	async fn send_all<T: Serialize + Debug>(&self, data: &Command<T>) -> AppResult<()> {
+	#[tracing::instrument(skip_all, err, level = Level::DEBUG)]
+	async fn send_all(&self, data: Command) -> AppResult<()> {
 		let mut connections = self.open_connections();
 		while let Some(conn) = connections.next().await {
-			conn.send(data).await?;
+			conn.send(data.clone()).await?;
 		}
 
 		Ok(())
@@ -112,8 +107,8 @@ struct Connection {
 	pub id: u8,
 	pub client_id: u64,
 	rq: reqwest::Client,
-	pub tx: mpsc::Sender<RpcPacket>,
-	pub rx: Arc<Mutex<watch::Receiver<Option<RpcPacket>>>>,
+	pub tx: mpsc::Sender<Command>,
+	pub rx: Arc<Mutex<HashMap<Ulid, oneshot::Receiver<RpcPacket>>>>,
 	pub status: Arc<Mutex<watch::Receiver<Status>>>,
 	client_secret: &'static str,
 }
@@ -121,7 +116,6 @@ struct Connection {
 impl Connection {
 	#[tracing::instrument]
 	pub fn new(app: AppHandle, id: u8, client_id: u64, client_secret: &'static str) -> Self {
-		let (in_tx, in_rx) = watch::channel(None);
 		let (out_tx, out_rx) = mpsc::channel(32);
 		let (status_tx, status_rx) = watch::channel(Status::Opening);
 
@@ -130,7 +124,7 @@ impl Connection {
 			client_id,
 			rq: reqwest::Client::new(),
 			tx: out_tx,
-			rx: Arc::new(Mutex::new(in_rx)),
+			rx: Arc::default(),
 			status: Arc::new(Mutex::new(status_rx)),
 			client_secret,
 		};
@@ -145,8 +139,7 @@ impl Connection {
 			retry_strategy,
 			move || {
 				let out_rx = Arc::clone(&out_rx);
-				rpc2.clone()
-					.run(app.clone(), ready_tx2.clone(), out_rx, in_tx.clone())
+				rpc2.clone().run(app.clone(), ready_tx2.clone(), out_rx)
 			},
 			move |err: &AppError| {
 				if let Some(err) = err.0.downcast_ref::<io::Error>() {
@@ -169,8 +162,7 @@ impl Connection {
 		self,
 		app: AppHandle,
 		ready: watch::Sender<Status>,
-		sender: Arc<Mutex<mpsc::Receiver<RpcPacket>>>,
-		receiver: watch::Sender<Option<RpcPacket>>,
+		sender: Arc<Mutex<mpsc::Receiver<Command>>>,
 	) -> AppResult<()> {
 		ready.send(Status::Opening)?;
 
@@ -188,12 +180,17 @@ impl Connection {
 		self.authenticate(app).await?;
 		ready.send(Status::Open)?;
 
+		let mut expected = HashMap::new();
+
 		loop {
 			let mut sender = sender.lock().await;
 			let packet = select! {
 				v = framed.next() => v.transpose()?,
-				Some(v) = sender.recv() => {
-					framed.send(v).await?;
+				Some(cmd) = sender.recv() => {
+					let (res_tx, res_rx) = oneshot::channel();
+					expected.insert(cmd.nonce, res_tx);
+					self.rx.lock().await.insert(cmd.nonce, res_rx);
+					framed.send(RpcPacket { op: Op::Frame, data: to_value(cmd)? }).await?;
 					continue;
 				},
 			};
@@ -212,9 +209,14 @@ impl Connection {
 						.await?;
 				}
 				Op::Close => break,
-				_ => {
-					receiver.send(Some(packet))?;
+				Op::Frame => {
+					let nonce = from_value::<Ulid>(packet.data.get("nonce").unwrap().clone())?;
+					if let Some(sender) = expected.remove(&nonce) {
+						// we can assume that a failure to send means that nothing cares about this response
+						let _ = sender.send(packet);
+					}
 				}
+				_ => {}
 			}
 		}
 
@@ -243,23 +245,23 @@ impl Connection {
 	#[tracing::instrument(skip_all, err)]
 	pub async fn authorize(&self, client_secret: &str) -> AppResult<OAuth2Token> {
 		let nonce = Ulid::new();
-		self.send(&Command {
+		self.send(Command {
 			nonce,
-			args: AuthorizeArgs {
-				client_id: self.client_id.to_string(),
-				scopes: &["rpc", "rpc.activities.write"],
-			},
+			args: json!({
+				"client_id": self.client_id.to_string(),
+				"scopes": ["rpc", "rpc.activities.write"],
+			}),
 			cmd: "AUTHORIZE",
 		})
 		.await?;
 
-		let res = self.expect_response::<AuthorizeData>(Some(nonce)).await?;
+		let res = from_value::<AuthorizeData>(self.expect_response(nonce).await?)?;
 		let res = self
 			.rq
 			.post("https://discord.com/api/v10/oauth2/token")
 			.form(&OAuth2Body {
 				grant_type: "authorization_code",
-				code: res.data.code,
+				code: res.code,
 				client_id: self.client_id.to_string(),
 				redirect_uri: "http://localhost",
 			})
@@ -271,11 +273,9 @@ impl Connection {
 			.await?;
 		let token: OAuth2Token = res.into();
 
-		self.send(&Command {
+		self.send(Command {
 			nonce: Ulid::new(),
-			args: AuthenticateArgs {
-				access_token: token.access_token.clone(),
-			},
+			args: json!({ "access_token": token.access_token }),
 			cmd: "AUTHENTICATE",
 		})
 		.await?;
@@ -301,11 +301,9 @@ impl Connection {
 			.await?;
 		let token: OAuth2Token = res.into();
 
-		self.send(&Command {
+		self.send(Command {
 			nonce: Ulid::new(),
-			args: AuthenticateArgs {
-				access_token: token.access_token.clone(),
-			},
+			args: json!({ "access_token": token.access_token }),
 			cmd: "AUTHENTICATE",
 		})
 		.await?;
@@ -314,60 +312,30 @@ impl Connection {
 	}
 
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
-	async fn send<T: Serialize + Debug>(&self, data: &Command<T>) -> AppResult<()> {
-		self.tx
-			.send(RpcPacket {
-				op: Op::Frame,
-				data: serde_json::to_value(data)?,
-			})
-			.await?;
-
+	async fn send(&self, data: Command) -> AppResult<()> {
+		self.tx.send(data).await?;
 		Ok(())
 	}
 
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
-	pub async fn expect_response<T: DeserializeOwned + Debug>(
-		&self,
-		nonce: Option<Ulid>,
-	) -> AppResult<Response<T>> {
-		let mut watcher = self.rx.lock().await;
-		watcher.changed().await?;
-		let value = watcher.borrow();
+	pub async fn expect_response(&self, expected: Ulid) -> AppResult<Value> {
+		let value = self
+			.rx
+			.lock()
+			.await
+			.remove(&expected)
+			.ok_or(anyhow!("no listener for nonce {}", expected))?
+			.await?;
 
-		let res = serde_json::from_value::<Response<T>>(value.as_ref().unwrap().data.clone())?;
-
-		if let Some(expected) = nonce {
-			match res.nonce {
-				Some(received) if expected == received => {}
-				Some(received) => {
-					return Err(
-						anyhow!("expected nonce {}, received {}", expected, received).into(),
-					)
-				}
-				None => return Err(anyhow!("expected nonce {}, received none", expected).into()),
-			};
-		}
-
-		Ok(res)
+		Ok(value.data)
 	}
 }
 
-#[derive(Debug, Serialize)]
-struct Command<T> {
+#[derive(Debug, Clone, Serialize)]
+struct Command {
 	pub nonce: Ulid,
-	pub args: T,
+	pub args: Value,
 	pub cmd: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-struct AuthorizeArgs {
-	pub client_id: String,
-	pub scopes: &'static [&'static str],
-}
-
-#[derive(Debug, Serialize)]
-struct AuthenticateArgs {
-	pub access_token: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -433,13 +401,6 @@ pub struct ActivityAssets {
 	pub small_text: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub small_url: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Response<T> {
-	pub nonce: Option<Ulid>,
-	pub data: T,
-	// pub cmd: String,
 }
 
 #[derive(Debug, Deserialize)]
