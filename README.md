@@ -22,6 +22,8 @@ A Windows & MacOS app that sets your Discord presence to whatever music you're c
 
 - The UI could use some improvement and perhaps more information (e.g. currently connected Discord clients).
 - Windows is broken since I've been mostly developing on Mac.
-- If there's a potential solution to the secrets issue, I'd love to chat about it. Likely this would require a backend service, which is not something I am willing to commit to yet.
+- If there's a potential solution to the secrets issue, I'd love to chat about it. Top of mind solutions:
+  - Some kind of backend service, which would enable 0-config setup: just download and run
+  - In-app configuration: I'm not sure that this would net a ton of convenience, since setting up a Discord app and ngrok account are the hardest parts of running this app
 - Linux support? (I don't personally use it, so someone else would have to be motivated to do this.)
 - I've only tested this with TIDAL, so other music players may break this.
