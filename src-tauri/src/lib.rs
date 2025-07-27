@@ -5,7 +5,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use tracing::Level;
 
 use crate::{
-	media::{serve::Server, Media},
+	media::serve::Server,
 	state::{Config, RpcState},
 };
 

@@ -7,7 +7,6 @@ use std::{
 	time::Duration,
 };
 
-use anyhow::anyhow;
 use codec::{Op, RpcCodec, RpcPacket};
 use futures::{stream, SinkExt, Stream, StreamExt};
 use jiff::{SignedDuration, Timestamp};
@@ -21,7 +20,7 @@ use tokio::{
 };
 use tokio_retry::{strategy::ExponentialBackoff, RetryIf};
 use tokio_util::codec::Framed;
-use tracing::Level;
+use tracing::{debug, warn, Level};
 use ulid::Ulid;
 
 use crate::error::{AppError, AppResult};
@@ -48,29 +47,24 @@ impl Rpc {
 
 	#[tracing::instrument(skip(self), err)]
 	pub async fn set_activity(&self, activity: Activity) -> AppResult<()> {
-		self.send_all(Command {
-			nonce: Ulid::new(),
-			args: json!({ "pid": process::id(), "activity": activity }),
-			cmd: "SET_ACTIVITY",
-		})
+		self.send_all(
+			"SET_ACTIVITY",
+			json!({ "pid": process::id(), "activity": activity }),
+		)
 		.await
 	}
 
 	#[tracing::instrument(skip(self), err)]
 	pub async fn clear_activity(&self) -> AppResult<()> {
-		self.send_all(Command {
-			nonce: Ulid::new(),
-			args: json!({ "pid": process::id() }),
-			cmd: "SET_ACTIVITY",
-		})
-		.await
+		self.send_all("SET_ACTIVITY", json!({ "pid": process::id() }))
+			.await
 	}
 
 	#[tracing::instrument(skip_all, err, level = Level::DEBUG)]
-	async fn send_all(&self, data: Command) -> AppResult<()> {
+	async fn send_all(&self, command: &'static str, args: Value) -> AppResult<()> {
 		let mut connections = self.open_connections();
 		while let Some(conn) = connections.next().await {
-			conn.send(data.clone()).await?;
+			conn.send(command, args.clone()).await?;
 		}
 
 		Ok(())
@@ -107,8 +101,7 @@ struct Connection {
 	pub id: u8,
 	pub client_id: u64,
 	rq: reqwest::Client,
-	pub tx: mpsc::Sender<Command>,
-	pub rx: Arc<Mutex<HashMap<Ulid, oneshot::Receiver<RpcPacket>>>>,
+	pub tx: mpsc::Sender<(oneshot::Sender<RpcPacket>, Command)>,
 	pub status: Arc<Mutex<watch::Receiver<Status>>>,
 	client_secret: &'static str,
 }
@@ -124,7 +117,6 @@ impl Connection {
 			client_id,
 			rq: reqwest::Client::new(),
 			tx: out_tx,
-			rx: Arc::default(),
 			status: Arc::new(Mutex::new(status_rx)),
 			client_secret,
 		};
@@ -138,8 +130,12 @@ impl Connection {
 		spawn(RetryIf::spawn(
 			retry_strategy,
 			move || {
+				let rpc2 = rpc2.clone();
+				let app = app.clone();
+				let ready_tx2 = ready_tx2.clone();
 				let out_rx = Arc::clone(&out_rx);
-				rpc2.clone().run(app.clone(), ready_tx2.clone(), out_rx)
+
+				rpc2.run(app, ready_tx2, out_rx)
 			},
 			move |err: &AppError| {
 				if let Some(err) = err.0.downcast_ref::<io::Error>() {
@@ -162,7 +158,7 @@ impl Connection {
 		self,
 		app: AppHandle,
 		ready: watch::Sender<Status>,
-		sender: Arc<Mutex<mpsc::Receiver<Command>>>,
+		sender: Arc<Mutex<mpsc::Receiver<(oneshot::Sender<RpcPacket>, Command)>>>,
 	) -> AppResult<()> {
 		ready.send(Status::Opening)?;
 
@@ -175,10 +171,13 @@ impl Connection {
 				data: json!({ "v": 1, "client_id": self.client_id.to_string() }),
 			})
 			.await?;
-		framed.next().await;
+		let _ready = framed.next().await.transpose()?;
 
-		self.authenticate(app).await?;
-		ready.send(Status::Open)?;
+		let conn = self.clone();
+		spawn(async move {
+			conn.authenticate(app).await.unwrap();
+			ready.send(Status::Open).unwrap();
+		});
 
 		let mut expected = HashMap::new();
 
@@ -186,14 +185,17 @@ impl Connection {
 			let mut sender = sender.lock().await;
 			let packet = select! {
 				v = framed.next() => v.transpose()?,
-				Some(cmd) = sender.recv() => {
-					let (res_tx, res_rx) = oneshot::channel();
-					expected.insert(cmd.nonce, res_tx);
-					self.rx.lock().await.insert(cmd.nonce, res_rx);
+				Some((done, cmd)) = sender.recv() => {
+					debug!(?cmd, "sending cmd");
+
+					expected.insert(cmd.nonce, done);
 					framed.send(RpcPacket { op: Op::Frame, data: to_value(cmd)? }).await?;
+
 					continue;
 				},
 			};
+
+			debug!(?packet, "received packet");
 
 			let Some(packet) = packet else {
 				break;
@@ -241,21 +243,19 @@ impl Connection {
 		Ok(())
 	}
 
-	#[must_use]
 	#[tracing::instrument(skip_all, err)]
 	pub async fn authorize(&self, client_secret: &str) -> AppResult<OAuth2Token> {
-		let nonce = Ulid::new();
-		self.send(Command {
-			nonce,
-			args: json!({
-				"client_id": self.client_id.to_string(),
-				"scopes": ["rpc", "rpc.activities.write"],
-			}),
-			cmd: "AUTHORIZE",
-		})
-		.await?;
+		let response = self
+			.send(
+				"AUTHORIZE",
+				json!({
+					"client_id": self.client_id.to_string(),
+					"scopes": ["rpc", "rpc.activities.write"],
+				}),
+			)
+			.await?;
 
-		let res = from_value::<AuthorizeData>(self.expect_response(nonce).await?)?;
+		let res = from_value::<AuthorizeData>(response)?;
 		let res = self
 			.rq
 			.post("https://discord.com/api/v10/oauth2/token")
@@ -273,17 +273,15 @@ impl Connection {
 			.await?;
 		let token: OAuth2Token = res.into();
 
-		self.send(Command {
-			nonce: Ulid::new(),
-			args: json!({ "access_token": token.access_token }),
-			cmd: "AUTHENTICATE",
-		})
+		self.send(
+			"AUTHENTICATE",
+			json!({ "access_token": token.access_token }),
+		)
 		.await?;
 
 		Ok(token)
 	}
 
-	#[must_use]
 	#[tracing::instrument(skip_all, err)]
 	async fn refresh(&self, token: OAuth2Token, client_secret: &str) -> AppResult<OAuth2Token> {
 		let res = self
@@ -301,34 +299,29 @@ impl Connection {
 			.await?;
 		let token: OAuth2Token = res.into();
 
-		self.send(Command {
-			nonce: Ulid::new(),
-			args: json!({ "access_token": token.access_token }),
-			cmd: "AUTHENTICATE",
-		})
+		self.send(
+			"AUTHENTICATE",
+			json!({ "access_token": token.access_token }),
+		)
 		.await?;
 
 		Ok(token)
 	}
 
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
-	async fn send(&self, data: Command) -> AppResult<()> {
-		// TODO: somehow this channel can close
-		self.tx.send(data).await?;
-		Ok(())
-	}
-
-	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
-	pub async fn expect_response(&self, expected: Ulid) -> AppResult<Value> {
-		let value = self
-			.rx
-			.lock()
-			.await
-			.remove(&expected)
-			.ok_or(anyhow!("no listener for nonce {}", expected))?
+	async fn send(&self, cmd: &'static str, args: Value) -> AppResult<Value> {
+		let (tx, rx) = oneshot::channel();
+		self.tx
+			.send((
+				tx,
+				Command {
+					nonce: Ulid::new(),
+					args,
+					cmd,
+				},
+			))
 			.await?;
-
-		Ok(value.data)
+		Ok(rx.await?.data.get_mut("data").unwrap().take())
 	}
 }
 
@@ -430,6 +423,7 @@ pub struct OAuth2Response {
 	pub refresh_token: String,
 }
 
+#[must_use]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OAuth2Token {
 	pub access_token: String,

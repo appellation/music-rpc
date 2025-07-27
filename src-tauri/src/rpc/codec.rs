@@ -73,14 +73,14 @@ impl Decoder for RpcCodec {
 			return Ok(None);
 		}
 
-		let buf = src.take(len).into_inner();
+		let buf = src.split_to(len);
 
 		self.op = None;
 		self.len = None;
 
 		Ok(Some(RpcPacket {
 			op: op.try_into()?,
-			data: serde_json::from_slice(buf)?,
+			data: serde_json::from_slice(&buf)?,
 		}))
 	}
 }

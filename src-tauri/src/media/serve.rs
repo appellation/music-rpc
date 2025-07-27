@@ -14,8 +14,7 @@ use tokio::{
 	net::TcpListener,
 	sync::{watch, Mutex},
 };
-
-use crate::error::AppError;
+use tracing::info;
 
 #[derive(Clone)]
 pub struct Server {
@@ -36,12 +35,13 @@ impl Server {
 			.with_state(server.clone());
 
 		spawn(async move {
-			let listener = TcpListener::bind(("localhost", 0)).await?;
-			let _forwarder = Self::open_tunnel(listener.local_addr()?.port()).await?;
-			ready_tx.send(true)?;
-			serve(listener, router).await?;
-
-			Ok::<_, AppError>(())
+			let listener = TcpListener::bind(("localhost", 0)).await.unwrap();
+			let _forwarder = Self::open_tunnel(listener.local_addr().unwrap().port())
+				.await
+				.unwrap();
+			ready_tx.send(true).unwrap();
+			info!("artwork server ready");
+			serve(listener, router).await.unwrap();
 		});
 
 		server

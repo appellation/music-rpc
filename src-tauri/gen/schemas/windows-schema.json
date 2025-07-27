@@ -37,7 +37,7 @@
   ],
   "definitions": {
     "Capability": {
-      "description": "A grouping and boundary mechanism developers can use to isolate access to the IPC layer.\n\nIt controls application windows' and webviews' fine grained access to the Tauri core, application, or plugin commands. If a webview or its window is not matching any capability then it has no access to the IPC layer at all.\n\nThis can be done to create groups of windows, based on their required system access, which can reduce impact of frontend vulnerabilities in less privileged windows. Windows can be added to a capability by exact name (e.g. `main-window`) or glob patterns like `*` or `admin-*`. A Window can have none, one, or multiple associated capabilities.\n\n## Example\n\n```json { \"identifier\": \"main-user-files-write\", \"description\": \"This capability allows the `main` window on macOS and Windows access to `filesystem` write related commands and `dialog` commands to enable programatic access to files selected by the user.\", \"windows\": [ \"main\" ], \"permissions\": [ \"core:default\", \"dialog:open\", { \"identifier\": \"fs:allow-write-text-file\", \"allow\": [{ \"path\": \"$HOME/test.txt\" }] }, ], \"platforms\": [\"macOS\",\"windows\"] } ```",
+      "description": "A grouping and boundary mechanism developers can use to isolate access to the IPC layer.\n\nIt controls application windows' and webviews' fine grained access to the Tauri core, application, or plugin commands. If a webview or its window is not matching any capability then it has no access to the IPC layer at all.\n\nThis can be done to create groups of windows, based on their required system access, which can reduce impact of frontend vulnerabilities in less privileged windows. Windows can be added to a capability by exact name (e.g. `main-window`) or glob patterns like `*` or `admin-*`. A Window can have none, one, or multiple associated capabilities.\n\n## Example\n\n```json { \"identifier\": \"main-user-files-write\", \"description\": \"This capability allows the `main` window on macOS and Windows access to `filesystem` write related commands and `dialog` commands to enable programmatic access to files selected by the user.\", \"windows\": [ \"main\" ], \"permissions\": [ \"core:default\", \"dialog:open\", { \"identifier\": \"fs:allow-write-text-file\", \"allow\": [{ \"path\": \"$HOME/test.txt\" }] }, ], \"platforms\": [\"macOS\",\"windows\"] } ```",
       "type": "object",
       "required": [
         "identifier",
@@ -49,7 +49,7 @@
           "type": "string"
         },
         "description": {
-          "description": "Description of what the capability is intended to allow on associated windows.\n\nIt should contain a description of what the grouped permissions should allow.\n\n## Example\n\nThis capability allows the `main` window access to `filesystem` write related commands and `dialog` commands to enable programatic access to files selected by the user.",
+          "description": "Description of what the capability is intended to allow on associated windows.\n\nIt should contain a description of what the grouped permissions should allow.\n\n## Example\n\nThis capability allows the `main` window access to `filesystem` write related commands and `dialog` commands to enable programmatic access to files selected by the user.",
           "default": "",
           "type": "string"
         },
@@ -177,16 +177,58 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
+          "type": "string",
+          "const": "autostart:default",
+          "markdownDescription": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`"
+        },
+        {
+          "description": "Enables the disable command without any pre-configured scope.",
+          "type": "string",
+          "const": "autostart:allow-disable",
+          "markdownDescription": "Enables the disable command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the enable command without any pre-configured scope.",
+          "type": "string",
+          "const": "autostart:allow-enable",
+          "markdownDescription": "Enables the enable command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the is_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "autostart:allow-is-enabled",
+          "markdownDescription": "Enables the is_enabled command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the disable command without any pre-configured scope.",
+          "type": "string",
+          "const": "autostart:deny-disable",
+          "markdownDescription": "Denies the disable command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the enable command without any pre-configured scope.",
+          "type": "string",
+          "const": "autostart:deny-enable",
+          "markdownDescription": "Denies the enable command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the is_enabled command without any pre-configured scope.",
+          "type": "string",
+          "const": "autostart:deny-is-enabled",
+          "markdownDescription": "Denies the is_enabled command without any pre-configured scope."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",
           "markdownDescription": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`"
         },
         {
-          "description": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`",
+          "description": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`\n- `allow-bundle-type`",
           "type": "string",
           "const": "core:app:default",
-          "markdownDescription": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`"
+          "markdownDescription": "Default permissions for the plugin.\n#### This default permission set includes:\n\n- `allow-version`\n- `allow-name`\n- `allow-tauri-version`\n- `allow-identifier`\n- `allow-bundle-type`"
         },
         {
           "description": "Enables the app_hide command without any pre-configured scope.",
@@ -199,6 +241,12 @@
           "type": "string",
           "const": "core:app:allow-app-show",
           "markdownDescription": "Enables the app_show command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the bundle_type command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:allow-bundle-type",
+          "markdownDescription": "Enables the bundle_type command without any pre-configured scope."
         },
         {
           "description": "Enables the default_window_icon command without any pre-configured scope.",
@@ -237,6 +285,12 @@
           "markdownDescription": "Enables the set_app_theme command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_dock_visibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:allow-set-dock-visibility",
+          "markdownDescription": "Enables the set_dock_visibility command without any pre-configured scope."
+        },
+        {
           "description": "Enables the tauri_version command without any pre-configured scope.",
           "type": "string",
           "const": "core:app:allow-tauri-version",
@@ -259,6 +313,12 @@
           "type": "string",
           "const": "core:app:deny-app-show",
           "markdownDescription": "Denies the app_show command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the bundle_type command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:deny-bundle-type",
+          "markdownDescription": "Denies the bundle_type command without any pre-configured scope."
         },
         {
           "description": "Denies the default_window_icon command without any pre-configured scope.",
@@ -295,6 +355,12 @@
           "type": "string",
           "const": "core:app:deny-set-app-theme",
           "markdownDescription": "Denies the set_app_theme command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_dock_visibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:app:deny-set-dock-visibility",
+          "markdownDescription": "Denies the set_dock_visibility command without any pre-configured scope."
         },
         {
           "description": "Denies the tauri_version command without any pre-configured scope.",
@@ -1005,6 +1071,12 @@
           "markdownDescription": "Enables the reparent command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_webview_auto_resize command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:webview:allow-set-webview-auto-resize",
+          "markdownDescription": "Enables the set_webview_auto_resize command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_webview_background_color command without any pre-configured scope.",
           "type": "string",
           "const": "core:webview:allow-set-webview-background-color",
@@ -1105,6 +1177,12 @@
           "type": "string",
           "const": "core:webview:deny-reparent",
           "markdownDescription": "Denies the reparent command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_webview_auto_resize command without any pre-configured scope.",
+          "type": "string",
+          "const": "core:webview:deny-set-webview-auto-resize",
+          "markdownDescription": "Denies the set_webview_auto_resize command without any pre-configured scope."
         },
         {
           "description": "Denies the set_webview_background_color command without any pre-configured scope.",
@@ -2059,6 +2137,180 @@
           "type": "string",
           "const": "core:window:deny-unminimize",
           "markdownDescription": "Denies the unminimize command without any pre-configured scope."
+        },
+        {
+          "description": "This permission set configures what kind of\noperations are available from the store plugin.\n\n#### Granted Permissions\n\nAll operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-load`\n- `allow-get-store`\n- `allow-set`\n- `allow-get`\n- `allow-has`\n- `allow-delete`\n- `allow-clear`\n- `allow-reset`\n- `allow-keys`\n- `allow-values`\n- `allow-entries`\n- `allow-length`\n- `allow-reload`\n- `allow-save`",
+          "type": "string",
+          "const": "store:default",
+          "markdownDescription": "This permission set configures what kind of\noperations are available from the store plugin.\n\n#### Granted Permissions\n\nAll operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-load`\n- `allow-get-store`\n- `allow-set`\n- `allow-get`\n- `allow-has`\n- `allow-delete`\n- `allow-clear`\n- `allow-reset`\n- `allow-keys`\n- `allow-values`\n- `allow-entries`\n- `allow-length`\n- `allow-reload`\n- `allow-save`"
+        },
+        {
+          "description": "Enables the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-clear",
+          "markdownDescription": "Enables the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-delete",
+          "markdownDescription": "Enables the delete command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the entries command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-entries",
+          "markdownDescription": "Enables the entries command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-get",
+          "markdownDescription": "Enables the get command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_store command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-get-store",
+          "markdownDescription": "Enables the get_store command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the has command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-has",
+          "markdownDescription": "Enables the has command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the keys command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-keys",
+          "markdownDescription": "Enables the keys command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the length command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-length",
+          "markdownDescription": "Enables the length command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-load",
+          "markdownDescription": "Enables the load command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reload command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-reload",
+          "markdownDescription": "Enables the reload command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reset command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-reset",
+          "markdownDescription": "Enables the reset command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-save",
+          "markdownDescription": "Enables the save command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-set",
+          "markdownDescription": "Enables the set command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the values command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:allow-values",
+          "markdownDescription": "Enables the values command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-clear",
+          "markdownDescription": "Denies the clear command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-delete",
+          "markdownDescription": "Denies the delete command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the entries command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-entries",
+          "markdownDescription": "Denies the entries command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-get",
+          "markdownDescription": "Denies the get command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_store command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-get-store",
+          "markdownDescription": "Denies the get_store command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the has command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-has",
+          "markdownDescription": "Denies the has command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the keys command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-keys",
+          "markdownDescription": "Denies the keys command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the length command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-length",
+          "markdownDescription": "Denies the length command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-load",
+          "markdownDescription": "Denies the load command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reload command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-reload",
+          "markdownDescription": "Denies the reload command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reset command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-reset",
+          "markdownDescription": "Denies the reset command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-save",
+          "markdownDescription": "Denies the save command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-set",
+          "markdownDescription": "Denies the set command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the values command without any pre-configured scope.",
+          "type": "string",
+          "const": "store:deny-values",
+          "markdownDescription": "Denies the values command without any pre-configured scope."
         }
       ]
     },

@@ -1,5 +1,8 @@
-use futures::TryStreamExt;
+use std::thread;
+
+use futures::{executor::block_on, TryStreamExt};
 use tauri::{async_runtime::spawn, AppHandle, Emitter};
+use tokio::{sync::oneshot, task::LocalSet};
 use tracing::Level;
 
 use crate::{
@@ -10,7 +13,7 @@ use crate::{
 #[tauri::command]
 #[tracing::instrument(skip_all, err, level = Level::INFO)]
 pub async fn subscribe_media(app: AppHandle) -> AppResult<()> {
-	let mut subscription = media::subscribe(app.clone())?;
+	let mut subscription = media::subscribe(app.clone()).await?;
 
 	spawn(async move {
 		while let Some(properties) = subscription.try_next().await.unwrap() {
@@ -25,5 +28,13 @@ pub async fn subscribe_media(app: AppHandle) -> AppResult<()> {
 #[tauri::command]
 #[tracing::instrument(skip_all, ret, err, level = Level::INFO)]
 pub async fn get_media(app: AppHandle) -> AppResult<Option<Media>> {
-	media::get(app).await
+	let (tx, rx) = oneshot::channel();
+	thread::spawn(|| {
+		let local = LocalSet::new();
+		local.spawn_local(async move { tx.send(media::get(app).await) });
+
+		block_on(local)
+	});
+
+	rx.await?
 }
