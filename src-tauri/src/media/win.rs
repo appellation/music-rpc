@@ -40,7 +40,7 @@ fn from_date_time(date_time: DateTime) -> Timestamp {
 
 fn from_time_span(time_span: TimeSpan) -> SignedDuration {
 	// time spans are expressed in 100-nanosecond units
-	SignedDuration::from_millis(time_span.Duration * 100)
+	SignedDuration::from_nanos(time_span.Duration * 100)
 }
 
 fn read_stream_to_vec(
@@ -140,9 +140,12 @@ impl Media {
 		properties: GlobalSystemMediaTransportControlsSessionMediaProperties,
 	) -> windows_core::Result<Self> {
 		let last_updated = from_date_time(timeline.LastUpdatedTime()?);
-		let start = last_updated + from_time_span(timeline.StartTime()?)
-			- from_time_span(timeline.Position()?);
-		let end = start + from_time_span(timeline.EndTime()?);
+		let elapsed = from_time_span(timeline.Position()?);
+		let start_duration = from_time_span(timeline.StartTime()?);
+		let start = last_updated - elapsed + start_duration;
+		let end = start + from_time_span(timeline.EndTime()?) - start_duration;
+
+		dbg!(&last_updated, &elapsed, &start_duration, &start, &end);
 
 		let artwork_stream = properties.Thumbnail()?.OpenReadAsync()?.get()?;
 		let artwork_mime = artwork_stream.ContentType()?.to_string_lossy();
