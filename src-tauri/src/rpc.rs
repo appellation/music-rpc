@@ -8,19 +8,19 @@ use std::{
 };
 
 use codec::{Op, RpcCodec, RpcPacket};
-use futures::{stream, SinkExt, Stream, StreamExt};
+use futures::{SinkExt, Stream, StreamExt, stream};
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize, Serializer};
-use serde_json::{from_value, json, to_value, Value};
-use tauri::{async_runtime::spawn, AppHandle};
+use serde_json::{Value, from_value, json, to_value};
+use tauri::{AppHandle, async_runtime::spawn};
 use tauri_plugin_store::StoreExt;
 use tokio::{
 	select,
-	sync::{mpsc, oneshot, watch, Mutex},
+	sync::{Mutex, mpsc, oneshot, watch},
 };
-use tokio_retry::{strategy::ExponentialBackoff, Retry};
+use tokio_retry::{Retry, strategy::ExponentialBackoff};
 use tokio_util::codec::Framed;
-use tracing::{debug, warn, Level};
+use tracing::{Level, debug, warn};
 use ulid::Ulid;
 
 use crate::error::{AppError, AppResult};
@@ -138,11 +138,13 @@ impl Connection {
 				let result = rpc2.run(app, ready_tx2, out_rx).await;
 
 				if let Err(err) = &result {
-					if let Some(err) = err.0.downcast_ref::<io::Error>() {
-						if err.kind() == ErrorKind::NotFound {
-							// if we can't mark ourselves dead, nothing cares that we are dead
-							let _ = status_tx.send(Status::Dead);
-						}
+					if let Some(err) = err.0.downcast_ref::<io::Error>()
+						&& err.kind() == ErrorKind::NotFound
+					{
+						// if we can't mark ourselves dead, nothing cares that we are dead
+						let _ = status_tx.send(Status::Dead);
+					} else {
+						let _ = status_tx.send(Status::Opening);
 					}
 				}
 
