@@ -145,8 +145,6 @@ impl Media {
 		let start = last_updated - elapsed + start_duration;
 		let end = start + from_time_span(timeline.EndTime()?) - start_duration;
 
-		dbg!(&last_updated, &elapsed, &start_duration, &start, &end);
-
 		let artwork_stream = properties.Thumbnail()?.OpenReadAsync()?.get()?;
 		let artwork_mime = artwork_stream.ContentType()?.to_string_lossy();
 		let artwork_bytes = read_stream_to_vec(&artwork_stream)?;

@@ -22,6 +22,7 @@ mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> AppResult<()> {
+	#[cfg(debug_assertions)]
 	tracing_subscriber::fmt()
 		.with_max_level(Level::DEBUG)
 		.with_file(true)

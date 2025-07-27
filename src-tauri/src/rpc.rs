@@ -18,7 +18,7 @@ use tokio::{
 	select,
 	sync::{mpsc, oneshot, watch, Mutex},
 };
-use tokio_retry::{strategy::ExponentialBackoff, RetryIf};
+use tokio_retry::{strategy::ExponentialBackoff, Retry};
 use tokio_util::codec::Framed;
 use tracing::{debug, warn, Level};
 use ulid::Ulid;
@@ -127,41 +127,39 @@ impl Connection {
 		let out_rx = Arc::new(Mutex::new(out_rx));
 		let ready_tx2 = status_tx.clone();
 		let rpc2 = rpc.clone();
-		spawn(RetryIf::spawn(
-			retry_strategy,
-			move || {
-				let rpc2 = rpc2.clone();
-				let app = app.clone();
-				let ready_tx2 = ready_tx2.clone();
-				let out_rx = Arc::clone(&out_rx);
+		spawn(Retry::spawn(retry_strategy, move || {
+			let rpc2 = rpc2.clone();
+			let app = app.clone();
+			let ready_tx2 = ready_tx2.clone();
+			let out_rx = Arc::clone(&out_rx);
+			let status_tx = status_tx.clone();
 
-				rpc2.run(app, ready_tx2, out_rx)
-			},
-			move |err: &AppError| {
-				if let Some(err) = err.0.downcast_ref::<io::Error>() {
-					if err.kind() == ErrorKind::NotFound {
-						// if we can't mark ourselves dead, nothing cares that we are dead
-						let _ = status_tx.send(Status::Dead);
-						return false;
+			async move {
+				let result = rpc2.run(app, ready_tx2, out_rx).await;
+
+				if let Err(err) = &result {
+					if let Some(err) = err.0.downcast_ref::<io::Error>() {
+						if err.kind() == ErrorKind::NotFound {
+							// if we can't mark ourselves dead, nothing cares that we are dead
+							let _ = status_tx.send(Status::Dead);
+						}
 					}
 				}
 
-				true
-			},
-		));
+				result
+			}
+		}));
 
 		rpc
 	}
 
-	#[tracing::instrument(skip_all, fields(id = self.id), err(level = Level::WARN))]
+	#[tracing::instrument(skip_all, fields(id = self.id), err(level = Level::DEBUG))]
 	async fn run(
 		self,
 		app: AppHandle,
 		ready: watch::Sender<Status>,
 		sender: Arc<Mutex<mpsc::Receiver<(oneshot::Sender<RpcPacket>, Command)>>>,
 	) -> AppResult<()> {
-		ready.send(Status::Opening)?;
-
 		let pipe = Rpc::get_pipe(self.id).await?;
 		let mut framed = Framed::new(pipe, RpcCodec::default());
 
