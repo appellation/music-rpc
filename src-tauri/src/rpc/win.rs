@@ -11,7 +11,7 @@ use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
 use crate::{error::AppResult, rpc::Rpc};
 
 fn get_pipe_name(id: u8) -> String {
-	format!(r#"\\?\pipe\discord-ipc-{}"#, id)
+	format!(r#"\\?\pipe\discord-ipc-{id}"#)
 }
 
 impl Rpc {

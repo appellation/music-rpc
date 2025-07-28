@@ -25,9 +25,9 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "music-rpc",
-        "width": 800,
-        "height": 600,
+        "title": "Music RPC",
+        "width": 400,
+        "height": 400,
         "useHttpsScheme": true
       }
     ]

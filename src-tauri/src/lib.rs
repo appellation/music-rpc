@@ -1,6 +1,11 @@
 use std::env;
 
 use error::AppResult;
+use tauri::{
+	Manager,
+	menu::{Menu, MenuItem},
+	tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+};
 use tauri_plugin_autostart::MacosLauncher;
 use tracing::Level;
 
@@ -37,6 +42,48 @@ pub fn run() -> AppResult<()> {
 	};
 
 	tauri::Builder::default()
+		.setup(|app| {
+			let quit = MenuItem::new(app, "Quit", true, None::<&str>)?;
+			let show = MenuItem::new(app, "Show", true, None::<&str>)?;
+			let menu = Menu::with_items(app, &[&show, &quit])?;
+
+			let _tray = TrayIconBuilder::new()
+				.icon(app.default_window_icon().unwrap().clone())
+				.menu(&menu)
+				.on_menu_event(move |app, event| match event.id {
+					id if id == quit.id() => {
+						app.exit(0);
+					}
+					id if id == show.id() => {
+						if let Some(window) = app.get_webview_window("main") {
+							let _ = window.show();
+							let _ = window.set_focus();
+						}
+					}
+					_ => {}
+				})
+				.on_tray_icon_event(|icon, event| {
+					if let TrayIconEvent::Click {
+						button: MouseButton::Left,
+						..
+					} = event
+					{
+						if let Some(window) = icon.app_handle().get_webview_window("main") {
+							let _ = window.show();
+							let _ = window.set_focus();
+						}
+					}
+				})
+				.build(app)?;
+
+			Ok(())
+		})
+		.on_window_event(|window, event| {
+			if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+				window.hide().unwrap();
+				api.prevent_close();
+			}
+		})
 		.plugin(tauri_plugin_autostart::init(
 			MacosLauncher::LaunchAgent,
 			None,

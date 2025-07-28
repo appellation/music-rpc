@@ -96,12 +96,14 @@ enum Status {
 	Dead,
 }
 
+type CommandWithResponder = (oneshot::Sender<RpcPacket>, Command);
+
 #[derive(Clone)]
 struct Connection {
 	pub id: u8,
 	pub client_id: u64,
 	rq: reqwest::Client,
-	pub tx: mpsc::Sender<(oneshot::Sender<RpcPacket>, Command)>,
+	pub tx: mpsc::Sender<CommandWithResponder>,
 	pub status: Arc<Mutex<watch::Receiver<Status>>>,
 	client_secret: &'static str,
 }
@@ -160,7 +162,7 @@ impl Connection {
 		self,
 		app: AppHandle,
 		ready: watch::Sender<Status>,
-		sender: Arc<Mutex<mpsc::Receiver<(oneshot::Sender<RpcPacket>, Command)>>>,
+		sender: Arc<Mutex<mpsc::Receiver<CommandWithResponder>>>,
 	) -> AppResult<()> {
 		let pipe = Rpc::get_pipe(self.id).await?;
 		let mut framed = Framed::new(pipe, RpcCodec::default());
