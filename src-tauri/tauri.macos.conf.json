@@ -1,6 +1,6 @@
 {
   "build": {
-    "beforeBuildCommand": "./prebuild-macos.sh",
+    "beforeBuildCommand": "./prebuild-macos.sh && pnpm build",
     "beforeDevCommand": "./prebuild-macos.sh && pnpm dev"
   },
   "bundle": {
