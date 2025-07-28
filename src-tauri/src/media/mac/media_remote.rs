@@ -1,19 +1,19 @@
 use std::{ffi::OsStr, path::PathBuf, process::Stdio};
 
 use anyhow::ensure;
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use futures::{StreamExt, TryStream};
 use jiff::{SignedDuration, Timestamp};
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Visitor};
 use serde_json::{from_slice, from_str};
-use tauri::{path::BaseDirectory, AppHandle, Manager};
+use tauri::{AppHandle, Manager, path::BaseDirectory};
 use tokio::{
 	io::{AsyncBufReadExt, BufReader},
 	process::Command,
 };
 use tokio_stream::wrappers::LinesStream;
 
-use crate::Media;
+use crate::media::Media;
 
 pub struct MediaRemote {
 	framework_path: PathBuf,

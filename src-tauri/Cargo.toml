@@ -4,6 +4,8 @@ version = "0.0.0"
 description = "A Tauri App"
 authors = ["Will Nelson"]
 edition = "2024"
+rust-version = "1.88"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

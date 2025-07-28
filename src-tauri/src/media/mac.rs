@@ -5,7 +5,7 @@ use media_remote::MediaRemote;
 
 use tauri::AppHandle;
 
-use crate::{error::AppResult, Media};
+use crate::{error::AppResult, media::Media};
 
 mod media_remote;
 
@@ -17,7 +17,7 @@ pub async fn get(app: AppHandle) -> AppResult<Option<Media>> {
 	Ok(playing_info.and_then(|info| info.into()))
 }
 
-pub fn subscribe(
+pub async fn subscribe(
 	app: AppHandle,
 ) -> anyhow::Result<impl TryStream<Ok = Option<Media>, Error = anyhow::Error>> {
 	let mr = MEDIA_REMOTE.get_or_init(|| MediaRemote::new(app));
