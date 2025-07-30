@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
 use axum::{
+	Router,
 	extract::{Path, State},
+	http::StatusCode,
 	response::IntoResponse,
 	routing::get,
-	serve, Router,
+	serve,
 };
-use blake3::{hash, Hash};
-use ngrok::{config::ForwarderBuilder, forwarder::Forwarder, tunnel::HttpTunnel, Session};
-use reqwest::StatusCode;
+use blake3::{Hash, hash};
+use ngrok::{Session, config::ForwarderBuilder, forwarder::Forwarder, tunnel::HttpTunnel};
 use tauri::async_runtime::spawn;
 use tokio::{
 	net::TcpListener,
-	sync::{watch, Mutex},
+	sync::{Mutex, watch},
 };
 use tracing::info;
 

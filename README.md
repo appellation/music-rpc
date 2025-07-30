@@ -8,7 +8,6 @@ A Windows & MacOS app that sets your Discord presence to whatever music you're c
    - Set `http://localhost` as a redirect URI in the OAuth2 tab
 2. Create a `.env` file in the project root
    - `CLIENT_ID`: the ID of your Discord app
-   - `CLIENT_SECRET`: the client secret of your Discord app
    - `NGROK_AUTH_TOKEN`: the auth token, provided on the [ngrok dashboard](https://dashboard.ngrok.com)
    - `NGROK_DOMAIN`: a valid ngrok domain associated with your account (you can get one for free on the ["Domains" tab](https://dashboard.ngrok.com/domains))
 3. `pnpm tauri build`

@@ -9,11 +9,10 @@ use std::{
 
 use codec::{Op, RpcCodec, RpcPacket};
 use futures::{SinkExt, Stream, StreamExt, stream};
-use jiff::{SignedDuration, Timestamp};
-use serde::{Deserialize, Serialize, Serializer};
+use jiff::Timestamp;
+use serde::{Serialize, Serializer};
 use serde_json::{Value, from_value, json, to_value};
-use tauri::{AppHandle, async_runtime::spawn};
-use tauri_plugin_store::StoreExt;
+use tauri::async_runtime::spawn;
 use tokio::{
 	select,
 	sync::{Mutex, mpsc, oneshot, watch},
@@ -37,10 +36,8 @@ pub struct Rpc {
 
 impl Rpc {
 	#[tracing::instrument(err, level = Level::INFO)]
-	pub fn new(app: AppHandle, client_id: u64, client_secret: &'static str) -> AppResult<Self> {
-		let connections = (0..10)
-			.map(|id| Connection::new(app.clone(), id, client_id, client_secret))
-			.collect();
+	pub fn new(client_id: u64) -> AppResult<Self> {
+		let connections = (0..10).map(|id| Connection::new(id, client_id)).collect();
 
 		Ok(Self { connections })
 	}
@@ -102,25 +99,21 @@ type CommandWithResponder = (oneshot::Sender<RpcPacket>, Command);
 struct Connection {
 	pub id: u8,
 	pub client_id: u64,
-	rq: reqwest::Client,
 	pub tx: mpsc::Sender<CommandWithResponder>,
 	pub status: Arc<Mutex<watch::Receiver<Status>>>,
-	client_secret: &'static str,
 }
 
 impl Connection {
 	#[tracing::instrument]
-	pub fn new(app: AppHandle, id: u8, client_id: u64, client_secret: &'static str) -> Self {
+	pub fn new(id: u8, client_id: u64) -> Self {
 		let (out_tx, out_rx) = mpsc::channel(32);
 		let (status_tx, status_rx) = watch::channel(Status::Opening);
 
 		let rpc = Self {
 			id,
 			client_id,
-			rq: reqwest::Client::new(),
 			tx: out_tx,
 			status: Arc::new(Mutex::new(status_rx)),
-			client_secret,
 		};
 
 		let retry_strategy = ExponentialBackoff::from_millis(10).max_delay(Duration::from_secs(60));
@@ -131,13 +124,12 @@ impl Connection {
 		let rpc2 = rpc.clone();
 		spawn(Retry::spawn(retry_strategy, move || {
 			let rpc2 = rpc2.clone();
-			let app = app.clone();
 			let ready_tx2 = ready_tx2.clone();
 			let out_rx = Arc::clone(&out_rx);
 			let status_tx = status_tx.clone();
 
 			async move {
-				let result = rpc2.run(app, ready_tx2, out_rx).await;
+				let result = rpc2.run(ready_tx2, out_rx).await;
 
 				if let Err(err) = &result {
 					if let Some(err) = err.0.downcast_ref::<io::Error>()
@@ -160,7 +152,6 @@ impl Connection {
 	#[tracing::instrument(skip_all, fields(id = self.id), err(level = Level::DEBUG))]
 	async fn run(
 		self,
-		app: AppHandle,
 		ready: watch::Sender<Status>,
 		sender: Arc<Mutex<mpsc::Receiver<CommandWithResponder>>>,
 	) -> AppResult<()> {
@@ -174,12 +165,7 @@ impl Connection {
 			})
 			.await?;
 		let _ready = framed.next().await.transpose()?;
-
-		let conn = self.clone();
-		spawn(async move {
-			conn.authenticate(app).await.unwrap();
-			ready.send(Status::Open).unwrap();
-		});
+		ready.send(Status::Open).unwrap();
 
 		let mut expected = HashMap::new();
 
@@ -225,89 +211,6 @@ impl Connection {
 		}
 
 		Ok::<_, AppError>(())
-	}
-
-	pub async fn authenticate(&self, app: AppHandle) -> AppResult<()> {
-		let token = app.store("auth")?.get(self.id.to_string());
-		let mut token = match token {
-			None => self.authorize(self.client_secret).await?,
-			Some(value) => serde_json::from_value(value)?,
-		};
-
-		if token.expires_at < Timestamp::now() {
-			token = self.authorize(self.client_secret).await?;
-		} else if token.expires_at < Timestamp::now() + SignedDuration::from_hours(24) {
-			token = self.refresh(token, self.client_secret).await?;
-		}
-
-		app.store("auth")?
-			.set(self.id.to_string(), serde_json::to_value(token)?);
-		Ok(())
-	}
-
-	#[tracing::instrument(skip_all, err)]
-	pub async fn authorize(&self, client_secret: &str) -> AppResult<OAuth2Token> {
-		let response = self
-			.send(
-				"AUTHORIZE",
-				json!({
-					"client_id": self.client_id.to_string(),
-					"scopes": ["rpc", "rpc.activities.write"],
-				}),
-			)
-			.await?;
-
-		let res = from_value::<AuthorizeData>(response)?;
-		let res = self
-			.rq
-			.post("https://discord.com/api/v10/oauth2/token")
-			.form(&OAuth2Body {
-				grant_type: "authorization_code",
-				code: res.code,
-				client_id: self.client_id.to_string(),
-				redirect_uri: "http://localhost",
-			})
-			.basic_auth(self.client_id, Some(client_secret))
-			.send()
-			.await?
-			.error_for_status()?
-			.json::<OAuth2Response>()
-			.await?;
-		let token: OAuth2Token = res.into();
-
-		self.send(
-			"AUTHENTICATE",
-			json!({ "access_token": token.access_token }),
-		)
-		.await?;
-
-		Ok(token)
-	}
-
-	#[tracing::instrument(skip_all, err)]
-	async fn refresh(&self, token: OAuth2Token, client_secret: &str) -> AppResult<OAuth2Token> {
-		let res = self
-			.rq
-			.post("https://discord.com/api/v10/oauth2/token")
-			.form(&OAuth2RefreshBody {
-				grant_type: "refresh_token",
-				refresh_token: token.refresh_token,
-			})
-			.basic_auth(self.client_id, Some(client_secret))
-			.send()
-			.await?
-			.error_for_status()?
-			.json::<OAuth2Response>()
-			.await?;
-		let token: OAuth2Token = res.into();
-
-		self.send(
-			"AUTHENTICATE",
-			json!({ "access_token": token.access_token }),
-		)
-		.await?;
-
-		Ok(token)
 	}
 
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
@@ -397,48 +300,4 @@ pub struct ActivityAssets {
 	pub small_text: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub small_url: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct AuthorizeData {
-	pub code: String,
-}
-
-#[derive(Debug, Serialize)]
-struct OAuth2Body {
-	pub grant_type: &'static str,
-	pub code: String,
-	pub client_id: String,
-	pub redirect_uri: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-struct OAuth2RefreshBody {
-	pub grant_type: &'static str,
-	pub refresh_token: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct OAuth2Response {
-	pub access_token: String,
-	pub expires_in: u64,
-	pub refresh_token: String,
-}
-
-#[must_use]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OAuth2Token {
-	pub access_token: String,
-	pub expires_at: Timestamp,
-	pub refresh_token: String,
-}
-
-impl From<OAuth2Response> for OAuth2Token {
-	fn from(value: OAuth2Response) -> Self {
-		Self {
-			access_token: value.access_token,
-			expires_at: Timestamp::now() + Duration::from_secs(value.expires_in),
-			refresh_token: value.refresh_token,
-		}
-	}
 }

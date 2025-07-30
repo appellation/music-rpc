@@ -38,7 +38,6 @@ pub fn run() -> AppResult<()> {
 		client_id: env!("CLIENT_ID")
 			.parse()
 			.expect("CLIENT_ID is not a number"),
-		client_secret: env!("CLIENT_SECRET"),
 	};
 
 	tauri::Builder::default()
@@ -91,7 +90,6 @@ pub fn run() -> AppResult<()> {
 		.manage(Server::serve())
 		.manage(RpcState::default())
 		.manage(config)
-		.plugin(tauri_plugin_store::Builder::new().build())
 		.invoke_handler(tauri::generate_handler![
 			get_media,
 			subscribe_media,
