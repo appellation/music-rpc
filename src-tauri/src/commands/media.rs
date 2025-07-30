@@ -1,8 +1,5 @@
-use std::thread;
-
-use futures::{executor::block_on, TryStreamExt};
-use tauri::{async_runtime::spawn, AppHandle, Emitter};
-use tokio::{sync::oneshot, task::LocalSet};
+use futures::TryStreamExt;
+use tauri::{AppHandle, Emitter, async_runtime::spawn};
 use tracing::Level;
 
 use crate::{
@@ -28,13 +25,5 @@ pub async fn subscribe_media(app: AppHandle) -> AppResult<()> {
 #[tauri::command]
 #[tracing::instrument(skip_all, ret, err, level = Level::INFO)]
 pub async fn get_media(app: AppHandle) -> AppResult<Option<Media>> {
-	let (tx, rx) = oneshot::channel();
-	thread::spawn(|| {
-		let local = LocalSet::new();
-		local.spawn_local(async move { tx.send(media::get(app).await) });
-
-		block_on(local)
-	});
-
-	rx.await?
+	media::get(app).await
 }

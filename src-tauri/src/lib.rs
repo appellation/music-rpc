@@ -10,7 +10,7 @@ use tauri_plugin_autostart::MacosLauncher;
 use tracing::Level;
 
 use crate::{
-	media::serve::Server,
+	api::Api,
 	state::{Config, RpcState},
 };
 
@@ -19,6 +19,7 @@ use commands::{
 	rpc::set_activity,
 };
 
+mod api;
 mod commands;
 mod error;
 mod media;
@@ -87,7 +88,7 @@ pub fn run() -> AppResult<()> {
 			MacosLauncher::LaunchAgent,
 			None,
 		))
-		.manage(Server::serve())
+		.manage(Api::new(env!("API_URL")))
 		.manage(RpcState::default())
 		.manage(config)
 		.invoke_handler(tauri::generate_handler![

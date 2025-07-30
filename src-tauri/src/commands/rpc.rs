@@ -1,8 +1,9 @@
 use tauri::{AppHandle, State};
 
 use crate::{
+	api::Api,
 	error::AppResult,
-	media::{serve::Server, Media},
+	media::Media,
 	rpc::{Activity, ActivityAssets, ActivityTimestamps},
 	state::RpcState,
 };
@@ -12,16 +13,15 @@ pub async fn set_activity(
 	app: AppHandle,
 	media: Option<Media>,
 	rpc: State<'_, RpcState>,
-	server: State<'_, Server>,
+	api: State<'_, Api>,
 ) -> AppResult<()> {
 	match media {
 		None => {
 			rpc.get(app).await.clear_activity().await?;
 		}
 		Some(media) => {
-			server
-				.set_artwork(media.artwork_mime, media.artwork_bytes)
-				.await;
+			api.set_artwork(media.artwork_mime, media.artwork_bytes, media.end)
+				.await?;
 
 			rpc.get(app)
 				.await
@@ -34,11 +34,7 @@ pub async fn set_activity(
 						end: Some(media.end),
 					}),
 					assets: Some(ActivityAssets {
-						large_image: Some(format!(
-							"https://{}/{}",
-							server.public_url().await,
-							media.artwork_hash
-						)),
+						large_image: Some(format!("{}/{}", api.base_url, media.artwork_hash)),
 						..Default::default()
 					}),
 					status_display_type: Some(1),

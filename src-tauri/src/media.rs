@@ -3,8 +3,6 @@ use std::fmt::Debug;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-pub mod serve;
-
 #[cfg(target_os = "macos")]
 mod mac;
 #[cfg(windows)]
@@ -42,8 +40,8 @@ impl Debug for Media {
 }
 
 mod artwork_bytes {
-	use base64::{prelude::BASE64_STANDARD, Engine};
-	use serde::{de::Visitor, Deserializer, Serializer};
+	use base64::{Engine, prelude::BASE64_STANDARD};
+	use serde::{Deserializer, Serializer, de::Visitor};
 
 	pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
 	where
