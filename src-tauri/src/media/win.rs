@@ -4,8 +4,8 @@ use blake3::hash;
 use futures::TryStream;
 use jiff::{SignedDuration, Timestamp};
 use tauri::{
-	async_runtime::{block_on, spawn_blocking},
 	AppHandle,
+	async_runtime::{block_on, spawn_blocking},
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;

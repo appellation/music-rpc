@@ -5,7 +5,7 @@ import { DateTime, Duration } from "luxon";
 
 const app = new Hono();
 
-const MAX_DURATION = Duration.fromMillis(30 * 60 * 1000); // 30 minutes
+const MAX_DURATION = Duration.fromMillis(2 * 60 * 60 * 1000); // 2 hours
 
 app.get("/:hash", async (ctx) => {
 	const hash = ctx.req.param("hash");

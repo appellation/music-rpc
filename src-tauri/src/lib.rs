@@ -1,22 +1,21 @@
 use std::env;
 
 use error::AppResult;
+use futures::TryStreamExt;
 use tauri::{
-	Manager,
+	Emitter, Manager,
+	async_runtime::spawn,
 	menu::{Menu, MenuItem},
 	tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_autostart::MacosLauncher;
 use tracing::Level;
 
-use crate::{
-	api::Api,
-	state::{Config, RpcState},
-};
+use crate::{api::Api, state::RpcState};
 
 use commands::{
-	media::{get_media, subscribe_media},
-	rpc::set_activity,
+	media::get_media,
+	rpc::{connect, set_activity},
 };
 
 mod api;
@@ -28,21 +27,26 @@ mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> AppResult<()> {
-	#[cfg(debug_assertions)]
+	// #[cfg(debug_assertions)]
 	tracing_subscriber::fmt()
 		.with_max_level(Level::DEBUG)
 		.with_file(true)
 		.with_line_number(true)
 		.init();
 
-	let config = Config {
-		client_id: env!("CLIENT_ID")
-			.parse()
-			.expect("CLIENT_ID is not a number"),
-	};
-
 	tauri::Builder::default()
+		.plugin(tauri_plugin_store::Builder::new().build())
 		.setup(|app| {
+			let handle = app.handle().clone();
+			spawn(async move {
+				let mut subscription = media::subscribe(handle.clone()).await.unwrap();
+
+				while let Some(properties) = subscription.try_next().await.unwrap() {
+					tracing::info!(?properties, "media change");
+					handle.emit("media_change", properties).unwrap();
+				}
+			});
+
 			let quit = MenuItem::new(app, "Quit", true, None::<&str>)?;
 			let show = MenuItem::new(app, "Show", true, None::<&str>)?;
 			let menu = Menu::with_items(app, &[&show, &quit])?;
@@ -89,13 +93,8 @@ pub fn run() -> AppResult<()> {
 			None,
 		))
 		.manage(Api::new(env!("API_URL")))
-		.manage(RpcState::default())
-		.manage(config)
-		.invoke_handler(tauri::generate_handler![
-			get_media,
-			subscribe_media,
-			set_activity
-		])
+		.manage(RpcState::new(None))
+		.invoke_handler(tauri::generate_handler![get_media, set_activity, connect,])
 		.run(tauri::generate_context!())
 		.expect("error while running tauri application");
 
