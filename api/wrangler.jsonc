@@ -8,7 +8,7 @@
 	"main": "src/index.js",
 	"compatibility_date": "2025-07-30",
 	"observability": {
-		"enabled": true,
+		"enabled": true
 	},
 	/**
 	 * Smart Placement
@@ -25,9 +25,9 @@
 	"kv_namespaces": [
 		{
 			"binding": "artwork",
-			"id": "bb6e3bc03fd549a7a89eb4a65ccc092c",
-		},
-	],
+			"id": "bb6e3bc03fd549a7a89eb4a65ccc092c"
+		}
+	]
 
 	/**
 	 * Environment Variables

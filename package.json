@@ -1,20 +1,22 @@
 {
-  "name": "music-rpc",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "tauri": "tauri",
-    "dev": "vite",
-    "build": "vite build",
-    "gen:icon": "tauri icon app-icon.svg"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-autostart": "~2.5.0"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.4.1",
-    "vite": "^5.1.4"
-  }
+	"name": "music-rpc",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"tauri": "tauri",
+		"dev": "vite",
+		"build": "vite build",
+		"gen:icon": "tauri icon app-icon.svg",
+		"fmt": "pnpm biome format --write"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "^2.0.0",
+		"@tauri-apps/plugin-autostart": "~2.5.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.1.3",
+		"@tauri-apps/cli": "^2.4.1",
+		"vite": "^5.1.4"
+	}
 }

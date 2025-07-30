@@ -1,12 +1,12 @@
 {
-  "build": {
-    "beforeBuildCommand": "./prebuild-macos.sh && pnpm build",
-    "beforeDevCommand": "./prebuild-macos.sh && pnpm dev"
-  },
-  "bundle": {
-    "resources": {
-      "../mediaremote-adapter/build/MediaRemoteAdapter.framework": "MediaRemoteAdapter.framework",
-      "../mediaremote-adapter/bin/mediaremote-adapter.pl": "mediaremote-adapter.pl"
-    }
-  }
+	"build": {
+		"beforeBuildCommand": "./prebuild-macos.sh && pnpm build",
+		"beforeDevCommand": "./prebuild-macos.sh && pnpm dev"
+	},
+	"bundle": {
+		"resources": {
+			"../mediaremote-adapter/build/MediaRemoteAdapter.framework": "MediaRemoteAdapter.framework",
+			"../mediaremote-adapter/bin/mediaremote-adapter.pl": "mediaremote-adapter.pl"
+		}
+	}
 }

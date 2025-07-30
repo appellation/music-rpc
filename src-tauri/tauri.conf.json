@@ -1,35 +1,35 @@
 {
-  "build": {
-    "frontendDist": "../dist",
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm build"
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
-  },
-  "productName": "music-rpc",
-  "mainBinaryName": "music-rpc",
-  "version": "0.0.0",
-  "identifier": "dev.wnelson.music-rpc",
-  "plugins": {},
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "Music RPC",
-        "width": 400,
-        "height": 400,
-        "useHttpsScheme": true
-      }
-    ]
-  }
+	"build": {
+		"frontendDist": "../dist",
+		"beforeDevCommand": "pnpm dev",
+		"devUrl": "http://localhost:5173",
+		"beforeBuildCommand": "pnpm build"
+	},
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		]
+	},
+	"productName": "music-rpc",
+	"mainBinaryName": "music-rpc",
+	"version": "0.0.0",
+	"identifier": "dev.wnelson.music-rpc",
+	"plugins": {},
+	"app": {
+		"withGlobalTauri": true,
+		"windows": [
+			{
+				"title": "Music RPC",
+				"width": 400,
+				"height": 400,
+				"useHttpsScheme": true
+			}
+		]
+	}
 }
