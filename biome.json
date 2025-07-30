@@ -6,7 +6,7 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": ["**/*", "!mediaremote-adapter/**"],
+		"includes": ["**/*", "!mediaremote-adapter/**", "!src-tauri/gen/**"],
 		"ignoreUnknown": false
 	},
 	"formatter": {
