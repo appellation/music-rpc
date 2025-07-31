@@ -31,7 +31,6 @@ serde_json = "1.0"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
 tokio = { version = "1.36.0", features = ["process", "rt"] }
-tokio-retry = "0.3.0"
 tokio-stream = { version = "0.1.17", features = ["io-util", "sync"] }
 tokio-util = "0.7.14"
 tracing = "0.1.41"

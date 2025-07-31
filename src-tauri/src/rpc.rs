@@ -16,8 +16,8 @@ use tauri::async_runtime::spawn;
 use tokio::{
 	select,
 	sync::{Mutex, mpsc, oneshot, watch},
+	time::sleep,
 };
-use tokio_retry::{Retry, strategy::ExponentialBackoff};
 use tokio_util::codec::Framed;
 use tracing::{Level, debug, warn};
 use ulid::Ulid;
@@ -116,35 +116,34 @@ impl Connection {
 			status: Arc::new(Mutex::new(status_rx)),
 		};
 
-		let retry_strategy = ExponentialBackoff::from_millis(10).max_delay(Duration::from_secs(60));
-
 		// there's technically only one reference at any time, but the compiler complains
 		let out_rx = Arc::new(Mutex::new(out_rx));
 		let ready_tx2 = status_tx.clone();
 		let rpc2 = rpc.clone();
-		spawn(Retry::spawn(retry_strategy, move || {
-			let rpc2 = rpc2.clone();
-			let ready_tx2 = ready_tx2.clone();
-			let out_rx = Arc::clone(&out_rx);
-			let status_tx = status_tx.clone();
 
-			async move {
-				let result = rpc2.run(ready_tx2, out_rx).await;
+		spawn(async move {
+			loop {
+				let result = rpc2.clone().run(ready_tx2.clone(), out_rx.clone()).await;
 
-				if let Err(err) = &result {
-					if let Some(err) = err.0.downcast_ref::<io::Error>()
-						&& err.kind() == ErrorKind::NotFound
-					{
-						// if we can't mark ourselves dead, nothing cares that we are dead
-						let _ = status_tx.send(Status::Dead);
-					} else {
+				match result {
+					Err(err) => {
+						if let Some(err) = err.0.downcast_ref::<io::Error>()
+							&& err.kind() == ErrorKind::NotFound
+						{
+							// if we can't mark ourselves dead, nothing cares that we are dead
+							let _ = status_tx.send(Status::Dead);
+						} else {
+							let _ = status_tx.send(Status::Opening);
+						}
+					}
+					Ok(()) => {
 						let _ = status_tx.send(Status::Opening);
 					}
 				}
 
-				result
+				sleep(Duration::from_secs(10)).await;
 			}
-		}));
+		});
 
 		rpc
 	}
