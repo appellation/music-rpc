@@ -9,32 +9,32 @@ import { atomWithStorage, loadable } from "jotai/utils";
 export const storeAtom = atom(() => Store.load("store.json"));
 
 const storeStorage = new (class StoreStorage {
-  #store;
+	#store;
 
-  constructor() {
-    this.#store = Store.load("store.json");
-  }
+	constructor() {
+		this.#store = Store.load("store.json");
+	}
 
-  async getItem(key, initialValue) {
-    const store = await this.#store;
-    const value = await store.get(key);
-    return value ?? initialValue;
-  }
+	async getItem(key, initialValue) {
+		const store = await this.#store;
+		const value = await store.get(key);
+		return value ?? initialValue;
+	}
 
-  async setItem(key, value) {
-    const store = await this.#store;
-    await store.set(key, value);
-  }
+	async setItem(key, value) {
+		const store = await this.#store;
+		await store.set(key, value);
+	}
 
-  async removeItem(key) {
-    const store = await this.#store;
-    await store.delete(key);
-  }
+	async removeItem(key) {
+		const store = await this.#store;
+		await store.delete(key);
+	}
 
-  async subscribe(key, callback, _initialValue) {
-    const store = await this.#store;
-    return store.onKeyChange(key, callback);
-  }
+	async subscribe(key, callback, _initialValue) {
+		const store = await this.#store;
+		return store.onKeyChange(key, callback);
+	}
 })();
 
 export const currentAppAtom = atomWithStorage("appId", null, storeStorage);
@@ -42,46 +42,46 @@ export const isConnectedAtom = atom(false);
 
 const currentAppLoadableAtom = loadable(currentAppAtom);
 observe((get, set) => {
-  const { state, data } = get(currentAppLoadableAtom);
-  if (state !== "hasData") return;
+	const { state, data } = get(currentAppLoadableAtom);
+	if (state !== "hasData") return;
 
-  const clientId = data === "" ? null : data;
-  (async () => {
-    try {
-      const isConnected = await invoke("connect", { clientId });
-      set(isConnectedAtom, isConnected);
-    } catch {
-      set(isConnectedAtom, false);
-    }
-  })();
+	const clientId = data === "" ? null : data;
+	(async () => {
+		try {
+			const isConnected = await invoke("connect", { clientId });
+			set(isConnectedAtom, isConnected);
+		} catch {
+			set(isConnectedAtom, false);
+		}
+	})();
 });
 
 export const currentMediaAtom = atom();
 currentMediaAtom.onMount = async (setAtom) => {
-  const value = await invoke("get_media");
-  setAtom(value);
+	const value = await invoke("get_media");
+	setAtom(value);
 
-  const unlisten = await listen("media_change", ({ payload }) => {
-    setAtom(payload);
-  });
+	const unlisten = await listen("media_change", ({ payload }) => {
+		setAtom(payload);
+	});
 
-  return unlisten;
+	return unlisten;
 };
 
 observe((get) => {
-  const media = get(currentMediaAtom);
-  if (!media) return;
+	const media = get(currentMediaAtom);
+	if (!media) return;
 
-  const isConnected = get(isConnectedAtom);
-  if (isConnected) invoke("set_activity", { media });
+	const isConnected = get(isConnectedAtom);
+	if (isConnected) invoke("set_activity", { media });
 });
 
 export const autostartAtom = atom(
-  () => {
-    return isEnabled();
-  },
-  async (_get, _set, value) => {
-    if (value) await enable();
-    else await disable();
-  }
+	() => {
+		return isEnabled();
+	},
+	async (_get, _set, value) => {
+		if (value) await enable();
+		else await disable();
+	},
 );
