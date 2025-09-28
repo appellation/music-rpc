@@ -15,6 +15,7 @@ use windows::{
 		GlobalSystemMediaTransportControlsSession,
 		GlobalSystemMediaTransportControlsSessionManager,
 		GlobalSystemMediaTransportControlsSessionMediaProperties,
+		GlobalSystemMediaTransportControlsSessionPlaybackStatus,
 		GlobalSystemMediaTransportControlsSessionTimelineProperties,
 	},
 	Storage::Streams::{DataReader, IRandomAccessStreamWithContentType},
@@ -91,10 +92,17 @@ fn subscribe_session(
 		move |session: Ref<GlobalSystemMediaTransportControlsSession>| -> windows_core::Result<()> {
 			match &*session {
 				Some(session) => {
-					let properties = session.TryGetMediaPropertiesAsync()?.get()?;
-					let timeline = session.GetTimelineProperties()?;
+					if session.GetPlaybackInfo()?.PlaybackStatus()?
+						== GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing
+					{
+						let properties = session.TryGetMediaPropertiesAsync()?.get()?;
+						let timeline = session.GetTimelineProperties()?;
 
-					let _ = tx2.blocking_send(Ok(Some(Media::from_windows(timeline, properties)?)));
+						let _ =
+							tx2.blocking_send(Ok(Some(Media::from_windows(timeline, properties)?)));
+					} else {
+						let _ = tx2.blocking_send(Ok(None));
+					}
 				}
 				None => {
 					let _ = tx2.blocking_send(Ok(None));
@@ -103,6 +111,7 @@ fn subscribe_session(
 			Ok(())
 		};
 	let session_update2 = session_update.clone();
+	let session_update3 = session_update.clone();
 
 	let timeline_properties_changed_handler = TypedEventHandler::new(
 		move |session: Ref<GlobalSystemMediaTransportControlsSession>, _| session_update(session),
@@ -113,10 +122,15 @@ fn subscribe_session(
 		TypedEventHandler::new(move |session, _| session_update2(session));
 	let properties_token = session.MediaPropertiesChanged(&media_properties_changed_handler)?;
 
+	let playback_info_changed_handler =
+		TypedEventHandler::new(move |session, _| session_update3(session));
+	let playback_info_token = session.PlaybackInfoChanged(&playback_info_changed_handler)?;
+
 	block_on(tx.closed());
 
 	let _ = session.RemoveTimelinePropertiesChanged(timeline_token);
 	let _ = session.RemoveMediaPropertiesChanged(properties_token);
+	let _ = session.RemovePlaybackInfoChanged(playback_info_token);
 
 	Ok(())
 }

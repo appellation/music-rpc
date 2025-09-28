@@ -70,8 +70,6 @@ currentMediaAtom.onMount = async (setAtom) => {
 
 observe((get) => {
 	const media = get(currentMediaAtom);
-	if (!media) return;
-
 	const isConnected = get(isConnectedAtom);
 	if (isConnected) invoke("set_activity", { media });
 });
