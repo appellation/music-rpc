@@ -10,11 +10,19 @@ use crate::{
 };
 
 #[tauri::command]
-pub async fn connect(rpc: State<'_, RpcState>, client_id: String) -> AppResult<()> {
-	let client_id = client_id.parse()?;
-	let new_rpc = Rpc::new(client_id)?;
-	*rpc.lock().await = Some(new_rpc);
-	Ok(())
+pub async fn connect(rpc: State<'_, RpcState>, client_id: Option<String>) -> AppResult<bool> {
+	match client_id {
+		Some(client_id) => {
+			let client_id = client_id.parse()?;
+			let new_rpc = Rpc::new(client_id)?;
+			*rpc.lock().await = Some(new_rpc);
+			Ok(true)
+		}
+		None => {
+			*rpc.lock().await = None;
+			Ok(false)
+		}
+	}
 }
 
 #[tauri::command]

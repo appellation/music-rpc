@@ -15,7 +15,7 @@ use serde_json::{Value, from_value, json, to_value};
 use tauri::async_runtime::spawn;
 use tokio::{
 	select,
-	sync::{Mutex, mpsc, oneshot, watch},
+	sync::{Mutex, Notify, mpsc, oneshot, watch},
 	time::sleep,
 };
 use tokio_util::codec::Framed;
@@ -101,6 +101,7 @@ struct Connection {
 	pub client_id: u64,
 	pub tx: mpsc::Sender<CommandWithResponder>,
 	pub status: Arc<Mutex<watch::Receiver<Status>>>,
+	pub done: Arc<Notify>,
 }
 
 impl Connection {
@@ -108,12 +109,14 @@ impl Connection {
 	pub fn new(id: u8, client_id: u64) -> Self {
 		let (out_tx, out_rx) = mpsc::channel(32);
 		let (status_tx, status_rx) = watch::channel(Status::Opening);
+		let done = Arc::new(Notify::new());
 
 		let rpc = Self {
 			id,
 			client_id,
 			tx: out_tx,
 			status: Arc::new(Mutex::new(status_rx)),
+			done: Arc::clone(&done),
 		};
 
 		// there's technically only one reference at any time, but the compiler complains
@@ -123,7 +126,10 @@ impl Connection {
 
 		spawn(async move {
 			loop {
-				let result = rpc2.clone().run(ready_tx2.clone(), out_rx.clone()).await;
+				let result = select! {
+					_ = done.notified() => break,
+					result = rpc2.clone().run(ready_tx2.clone(), out_rx.clone()) => result
+				};
 
 				match result {
 					Err(err) => {
@@ -226,6 +232,12 @@ impl Connection {
 			))
 			.await?;
 		Ok(rx.await?.data.get_mut("data").unwrap().take())
+	}
+}
+
+impl Drop for Connection {
+	fn drop(&mut self) {
+		self.done.notify_one();
 	}
 }
 
