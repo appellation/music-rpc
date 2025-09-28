@@ -43,8 +43,8 @@ app.put(
 			throw new HTTPException(400, {
 				message: `expires_at must be less than ${maxExpiry}`,
 			});
-		if (expiresAt.diff(now).as("minutes") < 1)
-			expiresAt = now.plus(Duration.fromMillis(60 * 1000));
+		// fudge the expiry since the minimum in KV is 1 minute
+		expiresAt = expiresAt.plus(Duration.fromMillis(120 * 1000));
 
 		const hash = ctx.req.param("hash");
 		const contentType = ctx.req.header("Content-Type");
