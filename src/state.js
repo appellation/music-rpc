@@ -43,7 +43,6 @@ export const isConnectedAtom = atom(false);
 const currentAppLoadableAtom = loadable(currentAppAtom);
 observe((get, set) => {
   const { state, data } = get(currentAppLoadableAtom);
-  console.log(state, data);
   if (state !== "hasData") return;
 
   const clientId = data === "" ? null : data;
