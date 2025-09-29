@@ -74,12 +74,17 @@ observe((get) => {
 	if (isConnected) invoke("set_activity", { media });
 });
 
+const autostartValueAtom = atom(isEnabled());
 export const autostartAtom = atom(
-	() => {
-		return isEnabled();
+	(get) => {
+		return get(autostartValueAtom);
 	},
-	async (_get, _set, value) => {
-		if (value) await enable();
+	async (get, set) => {
+		const prevValue = await get(autostartAtom);
+		const newValue = !prevValue;
+
+		if (newValue) await enable();
 		else await disable();
+		set(autostartValueAtom, newValue);
 	},
 );

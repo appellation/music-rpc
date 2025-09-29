@@ -46,17 +46,13 @@ function AutostartToggle() {
 	const id = useId();
 	const [enabled, setEnabled] = useAtom(autostartAtom);
 
-	const handleChange = () => {
-		setEnabled((v) => !v);
-	};
-
 	return (
 		<>
 			<input
 				type="checkbox"
 				id={id}
 				checked={enabled}
-				onChange={handleChange}
+				onChange={() => setEnabled()}
 			/>
 			<label htmlFor={id}>Autostart</label>
 		</>
