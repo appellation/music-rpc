@@ -248,16 +248,10 @@ struct Command {
 	pub cmd: &'static str,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SetActivityArgs {
-	pub pid: u32,
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub activity: Option<Activity>,
-}
-
 #[derive(Debug, Serialize, Default)]
 pub struct Activity {
-	pub name: String,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub name: Option<String>,
 	pub r#type: usize,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub url: Option<String>,
