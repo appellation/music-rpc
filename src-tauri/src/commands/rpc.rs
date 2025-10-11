@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use tauri::State;
+use tracing::Level;
 
 use crate::{
 	api::Api,
@@ -10,6 +11,7 @@ use crate::{
 };
 
 #[tauri::command]
+#[tracing::instrument(skip(rpc), ret, err, level = Level::INFO)]
 pub async fn connect(rpc: State<'_, RpcState>, client_id: Option<String>) -> AppResult<bool> {
 	match client_id {
 		Some(client_id) => {
@@ -26,6 +28,7 @@ pub async fn connect(rpc: State<'_, RpcState>, client_id: Option<String>) -> App
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(rpc, api), ret, err, level = Level::INFO)]
 pub async fn set_activity(
 	media: Option<Media>,
 	rpc: State<'_, RpcState>,

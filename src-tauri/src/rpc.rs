@@ -1,24 +1,13 @@
-use std::{
-	collections::HashMap,
-	fmt::Debug,
-	io::{self, ErrorKind},
-	process,
-	sync::Arc,
-	time::Duration,
-};
+use std::{fmt::Debug, process, time::Duration};
 
 use codec::{Op, RpcCodec, RpcPacket};
-use futures::{SinkExt, Stream, StreamExt, stream};
+use futures::{SinkExt, StreamExt};
 use jiff::Timestamp;
 use serde::{Serialize, Serializer};
-use serde_json::{Value, from_value, json, to_value};
+use serde_json::{Value, json, to_value};
 use tauri::async_runtime::spawn;
-use tokio::{
-	select,
-	sync::{Mutex, Notify, mpsc, oneshot, watch},
-	time::sleep,
-};
-use tokio_util::codec::Framed;
+use tokio::{select, sync::mpsc, time::sleep};
+use tokio_util::{codec::Framed, sync::CancellationToken};
 use tracing::{Level, debug, warn};
 use ulid::Ulid;
 
@@ -59,131 +48,67 @@ impl Rpc {
 
 	#[tracing::instrument(skip_all, err, level = Level::DEBUG)]
 	async fn send_all(&self, command: &'static str, args: Value) -> AppResult<()> {
-		let mut connections = self.open_connections();
-		while let Some(conn) = connections.next().await {
-			conn.send(command, args.clone()).await?;
+		for conn in &self.connections {
+			// we may fail to send for a variety of reasons that we want to ignore, including if the
+			// connection is not yet open
+			let _ = conn.send(command, args.clone());
 		}
 
 		Ok(())
 	}
-
-	fn open_connections(&self) -> impl Stream<Item = &Connection> + Unpin {
-		let stream = stream::iter(self.connections.iter()).filter(|conn| async {
-			let mut status_rx = conn.status.lock().await;
-
-			loop {
-				let status = *status_rx.borrow();
-				match status {
-					Status::Dead => return false,
-					Status::Open => return true,
-					Status::Opening => {
-						status_rx.changed().await.unwrap();
-					}
-				}
-			}
-		});
-		Box::pin(stream)
-	}
 }
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum Status {
-	Opening,
-	Open,
-	Dead,
-}
-
-type CommandWithResponder = (oneshot::Sender<RpcPacket>, Command);
 
 #[derive(Clone)]
 struct Connection {
-	pub id: u8,
-	pub client_id: u64,
-	pub tx: mpsc::Sender<CommandWithResponder>,
-	pub status: Arc<Mutex<watch::Receiver<Status>>>,
-	pub done: Arc<Notify>,
+	pub tx: mpsc::Sender<Command>,
+	done: CancellationToken,
 }
 
 impl Connection {
 	#[tracing::instrument]
 	pub fn new(id: u8, client_id: u64) -> Self {
-		let (out_tx, out_rx) = mpsc::channel(32);
-		let (status_tx, status_rx) = watch::channel(Status::Opening);
-		let done = Arc::new(Notify::new());
+		let (out_tx, mut out_rx) = mpsc::channel(4);
+		let done = CancellationToken::new();
 
 		let rpc = Self {
-			id,
-			client_id,
 			tx: out_tx,
-			status: Arc::new(Mutex::new(status_rx)),
-			done: Arc::clone(&done),
+			done: done.clone(),
 		};
-
-		// there's technically only one reference at any time, but the compiler complains
-		let out_rx = Arc::new(Mutex::new(out_rx));
-		let ready_tx2 = status_tx.clone();
-		let rpc2 = rpc.clone();
 
 		spawn(async move {
 			loop {
-				let result = select! {
-					_ = done.notified() => break,
-					result = rpc2.clone().run(ready_tx2.clone(), out_rx.clone()) => result
+				select! {
+					_ = done.cancelled() => break,
+					// we always want to retry, even (especially) if an error occurs.
+					// we don't really care about the errors themselves.
+					_ = Connection::run(id, client_id, &mut out_rx) => {
+						sleep(Duration::from_secs(10)).await;
+					}
 				};
-
-				match result {
-					Err(err) => {
-						if let Some(err) = err.0.downcast_ref::<io::Error>()
-							&& err.kind() == ErrorKind::NotFound
-						{
-							// if we can't mark ourselves dead, nothing cares that we are dead
-							let _ = status_tx.send(Status::Dead);
-						} else {
-							let _ = status_tx.send(Status::Opening);
-						}
-					}
-					Ok(()) => {
-						let _ = status_tx.send(Status::Opening);
-					}
-				}
-
-				sleep(Duration::from_secs(10)).await;
 			}
 		});
 
 		rpc
 	}
-
-	#[tracing::instrument(skip_all, fields(id = self.id), err(level = Level::DEBUG))]
-	async fn run(
-		self,
-		ready: watch::Sender<Status>,
-		sender: Arc<Mutex<mpsc::Receiver<CommandWithResponder>>>,
-	) -> AppResult<()> {
-		let pipe = Rpc::get_pipe(self.id).await?;
+	#[tracing::instrument(skip(sender), err(level = Level::DEBUG))]
+	async fn run(id: u8, client_id: u64, sender: &mut mpsc::Receiver<Command>) -> AppResult<()> {
+		let pipe = Rpc::get_pipe(id).await?;
 		let mut framed = Framed::new(pipe, RpcCodec::default());
 
 		framed
 			.send(RpcPacket {
 				op: Op::Handshake,
-				data: json!({ "v": 1, "client_id": self.client_id.to_string() }),
+				data: json!({ "v": 1, "client_id": client_id.to_string() }),
 			})
 			.await?;
 		let _ready = framed.next().await.transpose()?;
-		ready.send(Status::Open).unwrap();
-
-		let mut expected = HashMap::new();
 
 		loop {
-			let mut sender = sender.lock().await;
 			let packet = select! {
 				v = framed.next() => v.transpose()?,
-				Some((done, cmd)) = sender.recv() => {
+				Some(cmd) = sender.recv() => {
 					debug!(?cmd, "sending cmd");
-
-					expected.insert(cmd.nonce, done);
 					framed.send(RpcPacket { op: Op::Frame, data: to_value(cmd)? }).await?;
-
 					continue;
 				},
 			};
@@ -205,11 +130,7 @@ impl Connection {
 				}
 				Op::Close => break,
 				Op::Frame => {
-					let nonce = from_value::<Ulid>(packet.data.get("nonce").unwrap().clone())?;
-					if let Some(sender) = expected.remove(&nonce) {
-						// we can assume that a failure to send means that nothing cares about this response
-						let _ = sender.send(packet);
-					}
+					// we don't need to care about data from the rpc server
 				}
 				_ => {}
 			}
@@ -219,25 +140,19 @@ impl Connection {
 	}
 
 	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
-	async fn send(&self, cmd: &'static str, args: Value) -> AppResult<Value> {
-		let (tx, rx) = oneshot::channel();
-		self.tx
-			.send((
-				tx,
-				Command {
-					nonce: Ulid::new(),
-					args,
-					cmd,
-				},
-			))
-			.await?;
-		Ok(rx.await?.data.get_mut("data").unwrap().take())
+	fn send(&self, cmd: &'static str, args: Value) -> AppResult<()> {
+		self.tx.try_send(Command {
+			nonce: Ulid::new(),
+			args,
+			cmd,
+		})?;
+		Ok(())
 	}
 }
 
 impl Drop for Connection {
 	fn drop(&mut self) {
-		self.done.notify_one();
+		self.done.cancel();
 	}
 }
 
