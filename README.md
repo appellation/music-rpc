@@ -4,6 +4,10 @@ A Windows & MacOS app that sets your Discord presence to whatever music you're c
 
 ## Usage
 
+Download the [latest release](https://github.com/appellation/music-rpc/releases) and install.
+
+## Manual Build
+
 1. Install JS dependencies with `pnpm install`
 2. Create a Discord app in [the developer portal](https://discord.com/developers/applications)
    - Set `http://localhost` as a redirect URI in the OAuth2 tab
