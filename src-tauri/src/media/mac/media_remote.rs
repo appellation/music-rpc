@@ -82,9 +82,10 @@ impl MediaRemote {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NowPlayingInfo {
-	pub bundle_identifier: String,
+	pub bundle_identifier: Option<String>,
+	#[serde(default)]
 	pub playing: bool,
-	pub title: String,
+	pub title: Option<String>,
 	pub artist: Option<String>,
 	pub album: Option<String>,
 	pub duration: Option<f32>,
@@ -112,7 +113,7 @@ impl From<NowPlayingInfo> for Option<Media> {
 			artist: value.artist?,
 			start,
 			end,
-			title: value.title,
+			title: value.title?,
 			artwork_mime: value.artwork_mime_type?,
 			artwork_hash: blake3::hash(value.artwork_data.as_ref()?)
 				.to_hex()
