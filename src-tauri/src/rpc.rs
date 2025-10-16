@@ -31,8 +31,8 @@ impl Rpc {
 		Ok(Self { connections })
 	}
 
-	#[tracing::instrument(skip(self), err)]
-	pub async fn set_activity(&self, activity: Activity) -> AppResult<()> {
+	#[tracing::instrument(skip(self))]
+	pub async fn set_activity(&self, activity: Activity) {
 		self.send_all(
 			"SET_ACTIVITY",
 			json!({ "pid": process::id(), "activity": activity }),
@@ -40,21 +40,19 @@ impl Rpc {
 		.await
 	}
 
-	#[tracing::instrument(skip(self), err)]
-	pub async fn clear_activity(&self) -> AppResult<()> {
+	#[tracing::instrument(skip(self))]
+	pub async fn clear_activity(&self) {
 		self.send_all("SET_ACTIVITY", json!({ "pid": process::id() }))
 			.await
 	}
 
-	#[tracing::instrument(skip_all, err, level = Level::DEBUG)]
-	async fn send_all(&self, command: &'static str, args: Value) -> AppResult<()> {
+	#[tracing::instrument(skip_all, level = Level::DEBUG)]
+	async fn send_all(&self, command: &'static str, args: Value) {
 		for conn in &self.connections {
 			// we may fail to send for a variety of reasons that we want to ignore, including if the
 			// connection is not yet open
 			let _ = conn.send(command, args.clone());
 		}
-
-		Ok(())
 	}
 }
 
@@ -139,8 +137,9 @@ impl Connection {
 		Ok::<_, AppError>(())
 	}
 
-	#[tracing::instrument(skip(self), ret, err, level = Level::DEBUG)]
+	#[tracing::instrument(skip(self), err(level = Level::DEBUG) level = Level::DEBUG)]
 	fn send(&self, cmd: &'static str, args: Value) -> AppResult<()> {
+		// TODO: implement a proper mechanism for handling unopened connections
 		self.tx.try_send(Command {
 			nonce: Ulid::new(),
 			args,

@@ -41,7 +41,7 @@ pub async fn set_activity(
 
 	match media {
 		None => {
-			rpc.clear_activity().await?;
+			rpc.clear_activity().await;
 		}
 		Some(media) => {
 			api.set_artwork(media.artwork_mime, media.artwork_bytes, media.end)
@@ -62,7 +62,7 @@ pub async fn set_activity(
 				status_display_type: Some(1),
 				..Default::default()
 			})
-			.await?;
+			.await;
 		}
 	}
 
